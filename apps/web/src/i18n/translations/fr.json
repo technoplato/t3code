@@ -12140,5 +12140,20 @@
   "27d76249d09eb69f": "Guide de revue prêt",
   "faa3bb26abb39c93": "Échec du guide de revue",
   "b7df38b7d8792d78": "Ouvrir le guide",
-  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue"
+  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue",
+  "3dc150ba37e2c907": "Glisser pour redimensionner · Double-cliquer pour réinitialiser",
+  "49566d9951d1116a": "Grand",
+  "1656e9acf5ec7d90": "Complet (sans zone de défilement)",
+  "2cbbfd0051e862ab": "Déplier la réflexion par défaut",
+  "4003173458442eb6": "Déplier les appels d'outils par défaut",
+  "f37fb72a3f8a5164": "Hauteur de la zone de défilement d'activité",
+  "c76f6dc3993912b2": "Déplier automatiquement les traces de réflexion et de raisonnement de l'agent au lieu de les réduire à un aperçu d'une ligne. Vous pouvez toujours cliquer pour en replier une.",
+  "aaa05960bb333dcf": "Réinitialiser le dépliage par défaut de la réflexion",
+  "eb7576eff8c47734": "Déplier automatiquement les groupes d'appels d'outils et les résumés de tours terminés au lieu de les replier. Vous pouvez toujours cliquer sur un groupe pour le replier.",
+  "c08ca91481478035": "Réinitialiser le dépliage par défaut des appels d'outils",
+  "138032187d83a73e": "Contrôle la hauteur maximale des zones de défilement de réflexion et d'appels d'outils. Glissez le bord inférieur pour redimensionner ou choisissez Complet pour afficher en entier.",
+  "135367b7bf88471a": "Réinitialiser la hauteur de la zone de défilement d'activité",
+  "f8830ede8a2df825": "réflexion raisonnement pensée trace ouvert déplié activité journal",
+  "aec2aafa802ba8c3": "appels outils journal activité travaillé ouvert déplié groupes",
+  "431dd8a666e6d848": "réflexion raisonnement appels outils zone défilement hauteur grand complet redimensionner"
 }

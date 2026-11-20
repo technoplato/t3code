@@ -1599,8 +1599,10 @@ export function deriveMessagesTimelineRows(
     latestRun?: TimelineLatestRun | null;
     runningRunId?: RunId | null;
     expandedRunIds?: ReadonlySet<RunId>;
+    collapsedRunIds?: ReadonlySet<RunId>;
     expandedAttemptIds?: ReadonlySet<RunAttemptId>;
     expandedWorkGroupIds?: ReadonlySet<string>;
+    collapsedWorkGroupIds?: ReadonlySet<string>;
     isWorking: boolean;
     /** Native subagent work has no app run; runless entries form the live response. */
     runlessWorkActive?: boolean;
@@ -1611,6 +1613,8 @@ export function deriveMessagesTimelineRows(
     availableRevertTurnCounts?: ReadonlySet<number> | undefined;
     worktreeSetup?: WorktreeSetupSnapshot | null;
     toolCallVisibility?: ToolCallVisibility;
+    expandThinkingByDefault?: boolean;
+    expandToolCallsByDefault?: boolean;
     revealedMessageId?: MessageId | null;
   },
   resolve: MessageResolver = m,
@@ -1680,10 +1684,36 @@ export function deriveMessagesTimelineRows(
           resolve,
         });
   const timelineEntryById = new Map(timelineEntries.map((entry) => [entry.id, entry]));
+  const isTurnFoldExpanded = (fold: TurnFold): boolean => {
+    if (input.expandedRunIds?.has(fold.runId)) return true;
+    if (input.collapsedRunIds?.has(fold.runId)) return false;
+    if (input.expandToolCallsByDefault === true) return true;
+    if (input.expandThinkingByDefault !== true) return false;
+    for (const entryId of fold.hiddenEntryIds) {
+      const entry = timelineEntryById.get(entryId);
+      if (
+        entry?.kind === "work" &&
+        entry.entry.itemType === "reasoning" &&
+        (entry.entry.detail?.trim() ?? "") !== ""
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const isWorkGroupExpanded = (groupId: string, entries: ReadonlyArray<WorkLogEntry>): boolean => {
+    if (input.expandedWorkGroupIds?.has(groupId)) return true;
+    if (input.collapsedWorkGroupIds?.has(groupId)) return false;
+    if (input.expandToolCallsByDefault === true) return true;
+    return (
+      input.expandThinkingByDefault === true &&
+      entries.some((entry) => entry.itemType === "reasoning" && (entry.detail?.trim() ?? "") !== "")
+    );
+  };
   const collapsedEntryIds = new Set<string>();
   const collapsedFoldMemberIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
-    if (!input.expandedRunIds?.has(fold.runId)) {
+    if (!isTurnFoldExpanded(fold)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
       }
@@ -1778,6 +1808,7 @@ export function deriveMessagesTimelineRows(
     activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
       ? (() => {
           const groupId = workGroupId(activeWorkAnchor.id);
+          const groupedEntries = visibleActiveToolEntries.map((entry) => entry.entry);
           return {
             kind: "work-live" as const,
             id: latestToolKeepsActivityLive
@@ -1785,9 +1816,9 @@ export function deriveMessagesTimelineRows(
               : `work-live:${activeWorkAnchor.id}`,
             createdAt: activeWorkAnchor.createdAt,
             entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
-            groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
+            groupedEntries,
             groupId,
-            expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
+            expanded: isWorkGroupExpanded(groupId, groupedEntries),
             active: latestToolKeepsActivityLive,
             ...(latestThoughtEntry ? { thought: latestThoughtEntry.entry } : {}),
           };
@@ -1955,7 +1986,7 @@ export function deriveMessagesTimelineRows(
         createdAt: turnFold.createdAt,
         runId: turnFold.runId,
         label: turnFold.label,
-        expanded: input.expandedRunIds?.has(turnFold.runId) ?? false,
+        expanded: isTurnFoldExpanded(turnFold),
       });
     }
 
@@ -2095,7 +2126,7 @@ export function deriveMessagesTimelineRows(
         const activeInProgressToolEntries = visibleGroupedEntries.filter(workEntryIsInActiveRun);
         if (activeInProgressToolEntries.length > 0) {
           const groupId = workGroupId(timelineEntry.id);
-          const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
+          const expanded = isWorkGroupExpanded(groupId, visibleGroupedEntries);
           const latestActiveToolEntry = activeInProgressToolEntries.at(-1)!;
           nextRows.push({
             kind: "work-live",
@@ -2131,7 +2162,7 @@ export function deriveMessagesTimelineRows(
           });
         } else {
           const groupId = workGroupId(timelineEntry.id);
-          const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
+          const expanded = isWorkGroupExpanded(groupId, visibleGroupedEntries);
           const summaryKind = toolGroupSummaryKind(visibleGroupedEntries);
           const primarySourceEntry = visibleGroupedEntries.find(
             (entry) => entry.toolSource !== undefined,
@@ -2376,8 +2407,8 @@ export function deriveMessagesTimelineRows(
     const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
     if (failedGroupAnchor) {
       const groupId = workGroupId(failedGroupAnchor.id);
-      const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
       const groupedEntries = visibleActiveToolEntries.map((entry) => entry.entry);
+      const expanded = isWorkGroupExpanded(groupId, groupedEntries);
       nextRows.push({
         kind: "thinking",
         id: LIVE_ACTIVITY_ROW_ID,
@@ -2548,8 +2579,10 @@ function replaceStreamingMessageRows(
     latestRun: previousRun,
     turnDiffSummaries: previousCheckpoints,
     expandedRunIds: previousExpandedRuns,
+    collapsedRunIds: previousCollapsedRuns,
     expandedAttemptIds: previousExpandedAttempts,
     expandedWorkGroupIds: previousExpandedGroups,
+    collapsedWorkGroupIds: previousCollapsedGroups,
     pendingApprovalRequestIds: previousPendingApprovalRequestIds,
     availableRevertTurnCounts: previousAvailableRevertTurnCounts,
     ...previousContext
@@ -2559,8 +2592,10 @@ function replaceStreamingMessageRows(
     latestRun,
     turnDiffSummaries,
     expandedRunIds,
+    collapsedRunIds,
     expandedAttemptIds,
     expandedWorkGroupIds,
+    collapsedWorkGroupIds,
     pendingApprovalRequestIds,
     availableRevertTurnCounts,
     ...context
@@ -2571,8 +2606,10 @@ function replaceStreamingMessageRows(
     !shallow(previousContext, context) ||
     !shallow(previousRun, latestRun) ||
     !shallow(previousExpandedRuns, expandedRunIds) ||
+    !shallow(previousCollapsedRuns, collapsedRunIds) ||
     !shallow(previousExpandedAttempts, expandedAttemptIds) ||
     !shallow(previousExpandedGroups, expandedWorkGroupIds) ||
+    !shallow(previousCollapsedGroups, collapsedWorkGroupIds) ||
     !shallow(previousPendingApprovalRequestIds, pendingApprovalRequestIds) ||
     !shallow(previousAvailableRevertTurnCounts, availableRevertTurnCounts) ||
     !sameCheckpointSummaries(previousCheckpoints, turnDiffSummaries)

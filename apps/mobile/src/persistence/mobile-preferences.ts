@@ -18,7 +18,7 @@ import {
   PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
-import { ToolCallVisibility } from "@t3tools/contracts/settings";
+import { ToolCallVisibility, WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
@@ -168,6 +168,9 @@ export interface Preferences {
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly toolCallVisibility?: ToolCallVisibility;
+  readonly expandThinkingByDefault?: boolean;
+  readonly expandToolCallsByDefault?: boolean;
+  readonly workLogScrollHeight?: WorkLogScrollHeight;
   readonly workingShelfEnabled?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
@@ -225,6 +228,7 @@ export class MobilePreferencesStore extends Context.Service<
 >()("@t3tools/mobile/persistence/mobile-preferences/MobilePreferencesStore") {}
 
 const isToolCallVisibility = Schema.is(ToolCallVisibility);
+const isWorkLogScrollHeight = Schema.is(WorkLogScrollHeight);
 const isPullRequestMergeMethod = Schema.is(PullRequestMergeMethod);
 
 function sanitizePreferences(parsed: Preferences): Preferences {
@@ -258,6 +262,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     toolCallVisibility?: ToolCallVisibility;
+    expandThinkingByDefault?: boolean;
+    expandToolCallsByDefault?: boolean;
+    workLogScrollHeight?: WorkLogScrollHeight;
     workingShelfEnabled?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
@@ -390,6 +397,15 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isToolCallVisibility(parsed.toolCallVisibility)) {
     preferences.toolCallVisibility = parsed.toolCallVisibility;
+  }
+  if (typeof parsed.expandThinkingByDefault === "boolean") {
+    preferences.expandThinkingByDefault = parsed.expandThinkingByDefault;
+  }
+  if (typeof parsed.expandToolCallsByDefault === "boolean") {
+    preferences.expandToolCallsByDefault = parsed.expandToolCallsByDefault;
+  }
+  if (isWorkLogScrollHeight(parsed.workLogScrollHeight)) {
+    preferences.workLogScrollHeight = parsed.workLogScrollHeight;
   }
   if (typeof parsed.workingShelfEnabled === "boolean") {
     preferences.workingShelfEnabled = parsed.workingShelfEnabled;

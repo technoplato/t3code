@@ -12149,5 +12149,20 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "3dc150ba37e2c907": "Drag to resize · Double-click to reset",
+  "49566d9951d1116a": "Tall",
+  "1656e9acf5ec7d90": "Full (no scroll box)",
+  "2cbbfd0051e862ab": "Expand thinking by default",
+  "4003173458442eb6": "Expand tool calls by default",
+  "f37fb72a3f8a5164": "Activity scroll box height",
+  "c76f6dc3993912b2": "Automatically expand agent thinking and reasoning traces instead of collapsing them behind a one-line preview. You can still click any trace to collapse it.",
+  "aaa05960bb333dcf": "Reset expand thinking by default to default",
+  "eb7576eff8c47734": "Automatically expand tool call groups and completed turn summaries instead of collapsing them. You can still click any group to collapse it.",
+  "c08ca91481478035": "Reset expand tool calls by default to default",
+  "138032187d83a73e": "Control the max height of expanded thinking and tool call scroll boxes. Drag the bottom edge of any scroll box to resize it, or choose Full to expand inline.",
+  "135367b7bf88471a": "Reset activity scroll box height to default",
+  "f8830ede8a2df825": "thinking reasoning thought trace open expanded activity work log",
+  "aec2aafa802ba8c3": "tool calls work log activity worked for open expanded groups",
+  "431dd8a666e6d848": "thinking reasoning tool calls scroll box height tall full resize work log"
 }

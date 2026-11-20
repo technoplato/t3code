@@ -5301,5 +5301,15 @@
   "ad208e3e32c85029": "Alle ausblenden",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Tool-Aufrufe im Chat",
-  "8d545d54c0a9e950": "Die Befehle, Bearbeitungen und Suchen ausblenden, die Agenten ausführen. „Erfolgreiche ausblenden“ behält Fehler. „Zen“ zeigt nur endgültige Antworten. Genehmigungen, Fragen und Fehler werden immer angezeigt."
+  "8d545d54c0a9e950": "Die Befehle, Bearbeitungen und Suchen ausblenden, die Agenten ausführen. „Erfolgreiche ausblenden“ behält Fehler. „Zen“ zeigt nur endgültige Antworten. Genehmigungen, Fragen und Fehler werden immer angezeigt.",
+  "e40e6d4ec89b5365": "Standard",
+  "49566d9951d1116a": "Hoch",
+  "1656e9acf5ec7d90": "Vollständig (kein Scrollbereich)",
+  "dc8bb7919472eb83": "Standardmäßiges Ausklappen",
+  "2cbbfd0051e862ab": "Denkprozess standardmäßig ausklappen",
+  "5314e1d861ac9580": "Denk- und Begründungsspuren des Agenten automatisch öffnen",
+  "4003173458442eb6": "Werkzeugaufrufe standardmäßig ausklappen",
+  "d7a443b7fdc16ca7": "Werkzeugaufruf-Gruppen und abgeschlossene Zug-Zusammenfassungen automatisch öffnen",
+  "f37fb72a3f8a5164": "Höhe des Aktivitäts-Scrollbereichs",
+  "611434a264b1ce8a": "Steuere, wie hoch ausgeklappte Denk- und Werkzeug-Scrollbereiche werden. Wähle Vollständig, um alles direkt ohne inneren Scrollbereich zu lesen."
 }

@@ -12147,5 +12147,20 @@
   "27d76249d09eb69f": "Granskningsguiden är klar",
   "faa3bb26abb39c93": "Granskningsguiden misslyckades",
   "b7df38b7d8792d78": "Öppna guiden",
-  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide"
+  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide",
+  "3dc150ba37e2c907": "Dra för att ändra storlek · Dubbelklicka för att återställa",
+  "49566d9951d1116a": "Hög",
+  "1656e9acf5ec7d90": "Full (ingen rullningsruta)",
+  "2cbbfd0051e862ab": "Expandera tänkande som standard",
+  "4003173458442eb6": "Expandera verktygsanrop som standard",
+  "f37fb72a3f8a5164": "Höjd på aktivitetens rullningsruta",
+  "c76f6dc3993912b2": "Expandera agentens tänkande och resonemang automatiskt i stället för att fälla ihop dem bakom en enradig förhandsvisning. Du kan fortfarande klicka för att fälla ihop.",
+  "aaa05960bb333dcf": "Återställ expandera tänkande som standard",
+  "eb7576eff8c47734": "Expandera verktygsanropsgrupper och avslutade tursammanfattningar automatiskt i stället för att fälla ihop dem. Du kan fortfarande klicka på en grupp för att fälla ihop den.",
+  "c08ca91481478035": "Återställ expandera verktygsanrop som standard",
+  "138032187d83a73e": "Styr maxhöjden för expanderade rullningsrutor för tänkande och verktygsanrop. Dra nederkanten för att ändra storlek eller välj Full för att visa direkt i flödet.",
+  "135367b7bf88471a": "Återställ höjd på aktivitetens rullningsruta till standard",
+  "f8830ede8a2df825": "tänkande resonemang tanke spår öppen expanderad aktivitet arbetslogg",
+  "aec2aafa802ba8c3": "verktygsanrop arbetslogg aktivitet öppen expanderad grupper",
+  "431dd8a666e6d848": "tänkande resonemang verktygsanrop rullningsruta höjd hög full ändra storlek arbetslogg"
 }

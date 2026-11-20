@@ -12135,5 +12135,20 @@
   "27d76249d09eb69f": "Guía de revisión lista",
   "faa3bb26abb39c93": "Falló la guía de revisión",
   "b7df38b7d8792d78": "Abrir guía",
-  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión"
+  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión",
+  "3dc150ba37e2c907": "Arrastra para cambiar el tamaño · Doble clic para restablecer",
+  "49566d9951d1116a": "Alto",
+  "1656e9acf5ec7d90": "Completo (sin cuadro de desplazamiento)",
+  "2cbbfd0051e862ab": "Expandir el pensamiento de forma predeterminada",
+  "4003173458442eb6": "Expandir llamadas a herramientas de forma predeterminada",
+  "f37fb72a3f8a5164": "Altura del cuadro de desplazamiento de actividad",
+  "c76f6dc3993912b2": "Expande automáticamente los trazos de pensamiento y razonamiento del agente en lugar de ocultarlos tras una vista previa de una línea. Aún puedes hacer clic en cualquiera para contraerlo.",
+  "aaa05960bb333dcf": "Restablecer expandir el pensamiento de forma predeterminada",
+  "eb7576eff8c47734": "Expande automáticamente los grupos de llamadas a herramientas y los resúmenes de turnos completados en lugar de contraerlos. Aún puedes hacer clic en cualquier grupo para contraerlo.",
+  "c08ca91481478035": "Restablecer expandir llamadas a herramientas de forma predeterminada",
+  "138032187d83a73e": "Controla la altura máxima de los cuadros de desplazamiento de pensamiento y llamadas a herramientas. Arrastra el borde inferior para cambiar su tamaño o elige Completo para expandir en línea.",
+  "135367b7bf88471a": "Restablecer la altura del cuadro de desplazamiento de actividad",
+  "f8830ede8a2df825": "pensamiento razonamiento trazo abierto expandido actividad registro",
+  "aec2aafa802ba8c3": "llamadas herramientas registro actividad trabajado abierto expandido grupos",
+  "431dd8a666e6d848": "pensamiento razonamiento llamadas herramientas cuadro desplazamiento altura alto completo redimensionar"
 }

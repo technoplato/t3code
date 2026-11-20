@@ -28,7 +28,7 @@ import { CommandOutputPanel, useCommandOutputStreaming } from "./CommandOutputPa
 import { resolveExternalWebLinkHref } from "./externalLinkContextMenu";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ShellCommandBlock } from "./ShellCommandBlock";
-import { useInitialOutputReady, type TurnItemSource } from "./timelineRowContext";
+import { TimelineRowCtx, useInitialOutputReady, type TurnItemSource } from "./timelineRowContext";
 
 interface V2ItemInspectorProps {
   readonly onInitialOutputReady?: (() => void) | undefined;
@@ -76,11 +76,19 @@ function StructuredValue({
   readonly highlightJson?: boolean;
   readonly language?: "typescript" | "html" | "json";
 }) {
+  const timelineCtx = use(TimelineRowCtx) as { workLogScrollHeight?: string } | null;
+  const workLogScrollHeight = timelineCtx?.workLogScrollHeight ?? "default";
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   const isJson = highlightJson && isJsonToolText(text);
   if (!text) return null;
+  const maxHeightClass =
+    workLogScrollHeight === "full"
+      ? "max-h-none"
+      : workLogScrollHeight === "tall"
+        ? "max-h-[36rem]"
+        : "max-h-80";
   return (
-    <pre className={cn("max-h-80 overflow-auto text-muted-foreground", monoClassName)}>
+    <pre className={cn(maxHeightClass, "overflow-auto text-muted-foreground", monoClassName)}>
       {language || isJson ? (
         <RenderErrorBoundary fallback={text}>
           <Suspense fallback={text}>

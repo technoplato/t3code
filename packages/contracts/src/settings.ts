@@ -352,6 +352,9 @@ export type EffortDisplay = typeof EffortDisplay.Type;
 export const ToolCallVisibility = Schema.Literals(["showAll", "hideSuccessful", "hideAll", "zen"]);
 export type ToolCallVisibility = typeof ToolCallVisibility.Type;
 
+export const WorkLogScrollHeight = Schema.Literals(["default", "tall", "full"]);
+export type WorkLogScrollHeight = typeof WorkLogScrollHeight.Type;
+
 /** What the open thread reads to a screen reader: turn status, the agent's in-between messages too, or every step. */
 export const ScreenReaderAnnouncements = Schema.Literals(["status", "messages", "everything"]);
 export type ScreenReaderAnnouncements = typeof ScreenReaderAnnouncements.Type;
@@ -533,6 +536,11 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   toolCallVisibility: ToolCallVisibility.pipe(
     Schema.withDecodingDefault(Effect.succeed("showAll" as const)),
+  ),
+  expandThinkingByDefault: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  expandToolCallsByDefault: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  workLogScrollHeight: WorkLogScrollHeight.pipe(
+    Schema.withDecodingDefault(Effect.succeed("default" as const)),
   ),
   screenReaderAnnouncements: ScreenReaderAnnouncements.pipe(
     Schema.withDecodingDefault(Effect.succeed("status" as const)),
@@ -2103,6 +2111,9 @@ export const ClientSettingsPatch = Schema.Struct({
   boringSidebarEnabled: Schema.optionalKey(Schema.Boolean),
   boringSidebarMultilineRows: Schema.optionalKey(Schema.Boolean),
   toolCallVisibility: Schema.optionalKey(ToolCallVisibility),
+  expandThinkingByDefault: Schema.optionalKey(Schema.Boolean),
+  expandToolCallsByDefault: Schema.optionalKey(Schema.Boolean),
+  workLogScrollHeight: Schema.optionalKey(WorkLogScrollHeight),
   screenReaderAnnouncements: Schema.optionalKey(ScreenReaderAnnouncements),
   screenReaderWindowTitle: Schema.optionalKey(Schema.Boolean),
   threadDetailsUsageEnabled: Schema.optionalKey(Schema.Boolean),

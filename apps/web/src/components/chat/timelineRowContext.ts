@@ -27,7 +27,7 @@ import { type ChatFileAttachment } from "../../types";
 import { type ExpandedImageItem, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { type AssistantCitationTarget } from "./AssistantCitationSource";
 import { type MessagesTimelineRow, type WorkGroupScrollAnchor } from "./MessagesTimeline.logic";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type TimestampFormat, type WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import type { TurnItemDetailSource } from "../../state/queries";
 import { type HandoffTimelineRun } from "./V2LifecycleRow";
 
@@ -90,12 +90,12 @@ export interface TimelineRowSharedState {
   onForkFromRun:
     | ((input: { readonly sourceThreadId: ThreadId; readonly runId: RunId }) => Promise<void>)
     | undefined;
-  onToggleTurnFold: (runId: RunId) => void;
+  onToggleTurnFold: (runId: RunId, currentlyExpanded?: boolean) => void;
   onToggleAttemptFold: (attemptId: RunAttemptId) => void;
   onFileOpen: (attachment: ChatFileAttachment) => void;
   onFileDownload: (attachment: ChatFileAttachment) => void;
   openPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
-  onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
+  onToggleWorkGroup: (groupId: string, anchorKey: string, currentlyExpanded?: boolean) => void;
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean, entryId?: string) => void;
   onWorkEntryContentReady?: (anchorKey: string, entryId: string) => void;
   onCancelWorktreeSetup: (() => void) | null;
@@ -104,6 +104,8 @@ export interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  expandThinkingByDefault: boolean;
+  workLogScrollHeight: WorkLogScrollHeight;
 }
 
 export interface TimelineRowActivityState {
@@ -125,6 +127,7 @@ export const TimelineRowActivityCtx = createContext<TimelineRowActivityState>(nu
 export interface WorkGroupViewState {
   scrollPositions: Map<string, WorkGroupScrollAnchor>;
   expandedEntries: Set<string>;
+  collapsedEntries: Set<string>;
 }
 
 /** One image the group's agent viewed; `item` is null until its URL resolves. */

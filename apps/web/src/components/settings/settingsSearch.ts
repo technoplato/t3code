@@ -512,6 +512,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "expand-thinking-by-default",
+    title: msg("Expand thinking by default"),
+    to: "/settings/chat",
+    searchTerms: [msg("thinking reasoning thought trace open expanded activity work log")],
+  },
+  {
+    id: "expand-tool-calls-by-default",
+    title: msg("Expand tool calls by default"),
+    to: "/settings/chat",
+    searchTerms: [msg("tool calls work log activity worked for open expanded groups")],
+  },
+  {
+    id: "work-log-scroll-height",
+    title: msg("Activity scroll box height"),
+    to: "/settings/chat",
+    searchTerms: [msg("thinking reasoning tool calls scroll box height tall full resize work log")],
+  },
+  {
     id: "screen-reader-announcements",
     title: msg("Screen reader announcements"),
     to: "/settings/chat",

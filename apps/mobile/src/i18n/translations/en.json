@@ -5302,5 +5302,15 @@
   "ad208e3e32c85029": "Hide all",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Tool calls in chat",
-  "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show."
+  "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show.",
+  "e40e6d4ec89b5365": "Default",
+  "49566d9951d1116a": "Tall",
+  "1656e9acf5ec7d90": "Full (no scroll box)",
+  "dc8bb7919472eb83": "Default expansion",
+  "2cbbfd0051e862ab": "Expand thinking by default",
+  "5314e1d861ac9580": "Open agent thinking and reasoning traces automatically",
+  "4003173458442eb6": "Expand tool calls by default",
+  "d7a443b7fdc16ca7": "Open tool call groups and completed turn summaries automatically",
+  "f37fb72a3f8a5164": "Activity scroll box height",
+  "611434a264b1ce8a": "Control how tall expanded thinking and tool call scroll boxes grow. Choose Full to read thinking and tool activity inline without an inner scroll box."
 }
