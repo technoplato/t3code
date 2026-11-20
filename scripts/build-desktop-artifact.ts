@@ -3023,7 +3023,15 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   verbose: boolean,
 ) {
   if (platform === "mac") {
-    yield* stageMacIcons(stageResourcesDir, iconAssets.macIconPng, verbose);
+    const iconOverride = yield* Config.String("T3CODE_DESKTOP_MAC_ICON_PNG").pipe(Config.option);
+    const macIconPng = Option.getOrElse(
+      Option.filter(
+        Option.map(iconOverride, (value) => value.trim()),
+        (value) => value.length > 0,
+      ),
+      () => iconAssets.macIconPng,
+    );
+    yield* stageMacIcons(stageResourcesDir, macIconPng, verbose);
     return;
   }
 

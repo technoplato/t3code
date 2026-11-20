@@ -24,6 +24,10 @@ const userDataDirName = sharedHome
 const stagePackageName = sharedHome
   ? ""
   : process.env.T3CODE_DESKTOP_PACKAGE_NAME?.trim() || "t3code-custom";
+const customMacIconPng = NodePath.join(repoRoot, "assets", "custom", "custom-macos-1024.png");
+const macIconPng =
+  process.env.T3CODE_DESKTOP_MAC_ICON_PNG?.trim() ||
+  (NodeFS.existsSync(customMacIconPng) ? customMacIconPng : "");
 
 function run(command, args, options = {}) {
   const result = NodeChildProcess.spawnSync(command, args, {
@@ -87,6 +91,7 @@ if (!skipBuild) {
         T3CODE_DESKTOP_DEFAULT_HOME_DIR_NAME: defaultHomeDirName,
         T3CODE_DESKTOP_USER_DATA_DIR_NAME: userDataDirName,
         T3CODE_DESKTOP_PACKAGE_NAME: stagePackageName,
+        T3CODE_DESKTOP_MAC_ICON_PNG: macIconPng,
         T3CODE_DESKTOP_DISABLE_UPDATES: "true",
       },
     },
@@ -108,6 +113,7 @@ if (NodeFS.existsSync(installedAppPath)) {
 run("ditto", [builtAppPath, installedAppPath]);
 run("xattr", ["-dr", "com.apple.quarantine", installedAppPath], { allowFailure: true });
 run("codesign", ["--force", "--deep", "--sign", "-", installedAppPath]);
+run("touch", [installedAppPath], { allowFailure: true });
 run(
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
   ["-f", installedAppPath],

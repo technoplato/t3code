@@ -129,21 +129,86 @@ if (destHomeDir === realOfficialHome) {
 const destUserDataDir = NodePath.join(destHomeDir, "userdata");
 NodeFS.mkdirSync(destUserDataDir, { recursive: true, mode: 0o700 });
 
-// Snapshot statev2.sqlite read-only via T3's own migrator, which drops scheduled
-// tasks, pending work, auth sessions, and links to other environments.
+// Hot read-only SQLite backup preserves ALL projects and threads (pinned, active,
+// and settled), then scrubs scheduled tasks, remote links, and in-flight runs so
+// the forked instance never auto-resumes live turns or touches other devices.
 const sourceDb = NodePath.join(sourceUserDataDir, "statev2.sqlite");
+const destDb = NodePath.join(destUserDataDir, "statev2.sqlite");
 if (NodeFS.existsSync(sourceDb)) {
-  run(process.execPath, [
-    "apps/server/scripts/migrate-dev-db.ts",
-    "--base-dir",
-    destHomeDir,
-    "--source",
-    sourceDb,
-    "--projects",
-    "50",
-    "--threads-per-project",
-    "50",
-  ]);
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+    NodeFS.rmSync(`${destDb}${suffix}`, { force: true });
+  }
+  run("sqlite3", [sourceDb, `.backup '${destDb.replaceAll("'", "''")}'`]);
+
+  const tablesToClear = [
+    "scheduled_task_webhook_deliveries",
+    "scheduled_task_webhook_pending",
+    "scheduled_task_webhook_relay_deliveries",
+    "scheduled_task_webhook_replay_keys",
+    "scheduled_tasks",
+    "orchestration_v2_effect_outbox",
+    "orchestration_v2_thread_launch_workflows",
+    "orchestration_command_receipts",
+    "orchestration_v2_command_receipts",
+    "provider_session_runtime",
+    "auth_sessions",
+    "auth_pairing_links",
+    "auth_connect_devices",
+    "peer_environment_links",
+  ];
+  const existingTables = new Set(
+    NodeChildProcess.execFileSync(
+      "sqlite3",
+      [destDb, "SELECT name FROM sqlite_master WHERE type='table';"],
+      { encoding: "utf8" },
+    )
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
+  const statements = ["PRAGMA foreign_keys = OFF;", "BEGIN TRANSACTION;"];
+  for (const table of tablesToClear) {
+    if (existingTables.has(table)) {
+      statements.push(`DELETE FROM "${table}";`);
+    }
+  }
+  if (existingTables.has("orchestration_v2_projection_runs")) {
+    statements.push(
+      `UPDATE orchestration_v2_projection_runs
+       SET status = 'interrupted',
+           completed_at = COALESCE(completed_at, requested_at),
+           payload_json = CASE
+             WHEN json_valid(payload_json) THEN json_set(payload_json, '$.status', 'interrupted', '$.completedAt', COALESCE(completed_at, requested_at))
+             ELSE payload_json
+           END
+       WHERE status IN ('queued', 'preparing', 'starting', 'running', 'waiting');`,
+    );
+  }
+  if (existingTables.has("orchestration_v2_projection_run_attempts")) {
+    statements.push(
+      `UPDATE orchestration_v2_projection_run_attempts
+       SET status = 'interrupted',
+           payload_json = CASE
+             WHEN json_valid(payload_json) THEN json_set(payload_json, '$.status', 'interrupted')
+             ELSE payload_json
+           END
+       WHERE status IN ('queued', 'preparing', 'starting', 'running', 'waiting');`,
+    );
+  }
+  if (existingTables.has("orchestration_v2_projection_runtime_requests")) {
+    statements.push(
+      `UPDATE orchestration_v2_projection_runtime_requests
+       SET status = 'cancelled',
+           resolved_at = COALESCE(resolved_at, created_at),
+           payload_json = CASE
+             WHEN json_valid(payload_json) THEN json_set(payload_json, '$.status', 'cancelled')
+             ELSE payload_json
+           END
+       WHERE status = 'pending';`,
+    );
+  }
+  statements.push("COMMIT;");
+  run("sqlite3", [destDb, statements.join("\n")]);
 }
 
 for (const file of SAFE_CONFIG_FILES) {
