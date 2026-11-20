@@ -4,6 +4,14 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+declare const __T3CODE_BUILD_USER_DATA_DIR_NAME__: string | undefined;
+
+const DEFAULT_USER_DATA_DIR_NAME =
+  typeof __T3CODE_BUILD_USER_DATA_DIR_NAME__ === "string" &&
+  __T3CODE_BUILD_USER_DATA_DIR_NAME__.length > 0
+    ? __T3CODE_BUILD_USER_DATA_DIR_NAME__
+    : "t3code-v2";
+
 export class DesktopUserDataInitializationError extends Schema.TaggedError<DesktopUserDataInitializationError>()(
   "DesktopUserDataInitializationError",
   {
@@ -41,7 +49,7 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     const path = yield* Path.Path;
     const names = input.isDevelopment
       ? { current: "t3code-dev", legacy: "T3 Code (Dev)" }
-      : { current: "t3code-v2", legacy: "T3 Code (Alpha)" };
+      : { current: DEFAULT_USER_DATA_DIR_NAME, legacy: "T3 Code (Alpha)" };
     const destinationPath = path.join(input.appDataDirectory, names.current);
     const legacyPath = path.join(input.appDataDirectory, names.legacy);
     const inspect = (resourcePath: string) =>

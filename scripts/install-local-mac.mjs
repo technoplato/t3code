@@ -13,6 +13,14 @@ const hostArch = NodeOS.arch();
 const arch = process.env.T3CODE_DESKTOP_ARCH?.trim() || (hostArch === "arm64" ? "arm64" : "x64");
 const outputDir = NodePath.join(repoRoot, "release", "custom");
 const skipBuild = process.argv.includes("--skip-build");
+const sharedHome =
+  process.argv.includes("--shared-home") || process.env.T3CODE_DESKTOP_SHARED_HOME === "1";
+const defaultHomeDirName = sharedHome
+  ? ""
+  : process.env.T3CODE_DESKTOP_DEFAULT_HOME_DIR_NAME?.trim() || ".t3-custom";
+const userDataDirName = sharedHome
+  ? ""
+  : process.env.T3CODE_DESKTOP_USER_DATA_DIR_NAME?.trim() || "t3code-custom";
 
 function run(command, args, options = {}) {
   const result = NodeChildProcess.spawnSync(command, args, {
@@ -36,6 +44,22 @@ if (!NodeFS.existsSync(envPath) && NodeFS.existsSync(envExamplePath)) {
   console.log("[install:mac] Created .env from .env.example for T3 Connect sign-in and sync.");
 }
 
+if (!sharedHome) {
+  const isolatedDb = NodePath.join(
+    NodeOS.homedir(),
+    defaultHomeDirName,
+    "userdata",
+    "statev2.sqlite",
+  );
+  if (!NodeFS.existsSync(isolatedDb)) {
+    run(process.execPath, [
+      "scripts/fork-userdata.mjs",
+      "--dest",
+      NodePath.join(NodeOS.homedir(), defaultHomeDirName),
+    ]);
+  }
+}
+
 if (!skipBuild) {
   run(
     process.execPath,
@@ -57,6 +81,8 @@ if (!skipBuild) {
         T3CODE_DESKTOP_APP_ID: appId,
         T3CODE_DESKTOP_PRODUCT_NAME: productName,
         T3CODE_DESKTOP_APP_BASE_NAME: appBaseName,
+        T3CODE_DESKTOP_DEFAULT_HOME_DIR_NAME: defaultHomeDirName,
+        T3CODE_DESKTOP_USER_DATA_DIR_NAME: userDataDirName,
         T3CODE_DESKTOP_DISABLE_UPDATES: "true",
       },
     },
@@ -85,4 +111,6 @@ run(
 );
 run("mdimport", [installedAppPath], { allowFailure: true });
 
-console.log(`[install:mac] Installed ${installedAppPath}`);
+console.log(
+  `[install:mac] Installed ${installedAppPath} (home: ~/${defaultHomeDirName || ".t3"}, profile: ${userDataDirName || "t3code-v2"}).`,
+);

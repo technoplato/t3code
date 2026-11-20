@@ -27,6 +27,12 @@ const publicConfigDefine = {
   __T3CODE_BUILD_APP_BASE_NAME__: JSON.stringify(
     process.env.T3CODE_DESKTOP_APP_BASE_NAME?.trim() ?? "",
   ),
+  __T3CODE_BUILD_DEFAULT_HOME_DIR_NAME__: JSON.stringify(
+    process.env.T3CODE_DESKTOP_DEFAULT_HOME_DIR_NAME?.trim() ?? "",
+  ),
+  __T3CODE_BUILD_USER_DATA_DIR_NAME__: JSON.stringify(
+    process.env.T3CODE_DESKTOP_USER_DATA_DIR_NAME?.trim() ?? "",
+  ),
 };
 
 export default defineConfig({

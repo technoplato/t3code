@@ -1,5 +1,13 @@
 import * as Option from "effect/Option";
 
+declare const __T3CODE_BUILD_DEFAULT_HOME_DIR_NAME__: string | undefined;
+
+const DEFAULT_HOME_DIR_NAME =
+  typeof __T3CODE_BUILD_DEFAULT_HOME_DIR_NAME__ === "string" &&
+  __T3CODE_BUILD_DEFAULT_HOME_DIR_NAME__.length > 0
+    ? __T3CODE_BUILD_DEFAULT_HOME_DIR_NAME__
+    : ".t3";
+
 export type JoinPath = (first: string, ...segments: string[]) => string;
 
 function normalizeConfiguredBaseDir(t3Home: Option.Option<string>): Option.Option<string> {
@@ -16,7 +24,7 @@ export function resolveDesktopBaseDir(input: {
   readonly t3Home: Option.Option<string>;
 }): string {
   return Option.getOrElse(normalizeConfiguredBaseDir(input.t3Home), () =>
-    input.joinPath(input.homeDirectory, ".t3"),
+    input.joinPath(input.homeDirectory, DEFAULT_HOME_DIR_NAME),
   );
 }
 
