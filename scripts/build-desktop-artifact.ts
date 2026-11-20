@@ -2787,10 +2787,31 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
 ) {
+  const appIdOverride = yield* Config.String("T3CODE_DESKTOP_APP_ID").pipe(Config.option);
+  const productNameOverride = yield* Config.String("T3CODE_DESKTOP_PRODUCT_NAME").pipe(
+    Config.option,
+  );
+  const disableUpdates = yield* Config.Boolean("T3CODE_DESKTOP_DISABLE_UPDATES").pipe(
+    Config.withDefault(false),
+  );
+  const resolvedAppId = Option.getOrElse(
+    Option.filter(
+      Option.map(appIdOverride, (value) => value.trim()),
+      (value) => value.length > 0,
+    ),
+    () => DESKTOP_APP_ID,
+  );
+  const resolvedProductName = Option.getOrElse(
+    Option.filter(
+      Option.map(productNameOverride, (value) => value.trim()),
+      (value) => value.length > 0,
+    ),
+    () => resolveDesktopProductName(version),
+  );
   const buildConfig: Record<string, unknown> = {
     afterPack: (yield* Path.Path).join(yield* RepoRoot, "scripts/prepare-server-compile-cache.cjs"),
-    appId: DESKTOP_APP_ID,
-    productName: resolveDesktopProductName(version),
+    appId: resolvedAppId,
+    productName: resolvedProductName,
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [
@@ -2819,7 +2840,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const updateChannel = resolveDesktopUpdateChannel(version);
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
-  if (!isDesktopPreviewVersion(version)) {
+  if (!disableUpdates && !isDesktopPreviewVersion(version)) {
     const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
