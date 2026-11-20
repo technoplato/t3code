@@ -26,6 +26,7 @@ import {
   SidebarProjectSortOrder,
   ScreenReaderAnnouncements,
   ToolCallVisibility,
+  WorkLogScrollHeight,
 } from "@t3tools/contracts/settings";
 import {
   managedUpdatesDenial,
@@ -582,6 +583,15 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.toolCallVisibility !== DEFAULT_UNIFIED_SETTINGS.toolCallVisibility
       ? [gt("Tool calls in chat")]
       : []),
+    ...(settings.expandThinkingByDefault !== DEFAULT_UNIFIED_SETTINGS.expandThinkingByDefault
+      ? [gt("Expand thinking by default")]
+      : []),
+    ...(settings.expandToolCallsByDefault !== DEFAULT_UNIFIED_SETTINGS.expandToolCallsByDefault
+      ? [gt("Expand tool calls by default")]
+      : []),
+    ...(settings.workLogScrollHeight !== DEFAULT_UNIFIED_SETTINGS.workLogScrollHeight
+      ? [gt("Activity scroll box height")]
+      : []),
     ...(settings.screenReaderAnnouncements !== DEFAULT_UNIFIED_SETTINGS.screenReaderAnnouncements
       ? [gt("Screen reader announcements")]
       : []),
@@ -711,6 +721,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       toolCallVisibility: DEFAULT_UNIFIED_SETTINGS.toolCallVisibility,
+      expandThinkingByDefault: DEFAULT_UNIFIED_SETTINGS.expandThinkingByDefault,
+      expandToolCallsByDefault: DEFAULT_UNIFIED_SETTINGS.expandToolCallsByDefault,
+      workLogScrollHeight: DEFAULT_UNIFIED_SETTINGS.workLogScrollHeight,
       screenReaderAnnouncements: DEFAULT_UNIFIED_SETTINGS.screenReaderAnnouncements,
       screenReaderWindowTitle: DEFAULT_UNIFIED_SETTINGS.screenReaderWindowTitle,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
@@ -1395,6 +1408,9 @@ export function ChatSettingsPanel() {
 
       <SettingsSection id="activity" title={gt("Activity")}>
         <ToolCallVisibilityRow />
+        <ExpandThinkingByDefaultRow />
+        <ExpandToolCallsByDefaultRow />
+        <WorkLogScrollHeightRow />
       </SettingsSection>
 
       <SettingsSection id="screen-reader" title={gt("Screen reader")}>
@@ -1452,6 +1468,133 @@ function ToolCallVisibilityRow() {
             {ToolCallVisibility.literals.map((value) => (
               <SelectItem key={value} value={value}>
                 {messages(TOOL_CALL_VISIBILITY_LABELS[value])}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
+const WORK_LOG_SCROLL_HEIGHT_LABELS: Record<WorkLogScrollHeight, string> = {
+  default: msg("Default"),
+  tall: msg("Tall"),
+  full: msg("Full (no scroll box)"),
+};
+
+const isWorkLogScrollHeight = Schema.is(WorkLogScrollHeight);
+
+function ExpandThinkingByDefaultRow() {
+  const setting = useSearchableSetting();
+  const gt = useGT();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...setting("expand-thinking-by-default")}
+      description={gt(
+        "Automatically expand agent thinking and reasoning traces instead of collapsing them behind a one-line preview. You can still click any trace to collapse it.",
+      )}
+      resetAction={
+        settings.expandThinkingByDefault !== DEFAULT_UNIFIED_SETTINGS.expandThinkingByDefault ? (
+          <SettingResetButton
+            ariaLabel={gt("Reset expand thinking by default to default")}
+            onClick={() =>
+              updateSettings({
+                expandThinkingByDefault: DEFAULT_UNIFIED_SETTINGS.expandThinkingByDefault,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.expandThinkingByDefault}
+          onCheckedChange={(checked) => updateSettings({ expandThinkingByDefault: checked })}
+          aria-label={gt("Expand thinking by default")}
+        />
+      }
+    />
+  );
+}
+
+function ExpandToolCallsByDefaultRow() {
+  const setting = useSearchableSetting();
+  const gt = useGT();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...setting("expand-tool-calls-by-default")}
+      description={gt(
+        "Automatically expand tool call groups and completed turn summaries instead of collapsing them. You can still click any group to collapse it.",
+      )}
+      resetAction={
+        settings.expandToolCallsByDefault !== DEFAULT_UNIFIED_SETTINGS.expandToolCallsByDefault ? (
+          <SettingResetButton
+            ariaLabel={gt("Reset expand tool calls by default to default")}
+            onClick={() =>
+              updateSettings({
+                expandToolCallsByDefault: DEFAULT_UNIFIED_SETTINGS.expandToolCallsByDefault,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.expandToolCallsByDefault}
+          onCheckedChange={(checked) => updateSettings({ expandToolCallsByDefault: checked })}
+          aria-label={gt("Expand tool calls by default")}
+        />
+      }
+    />
+  );
+}
+
+function WorkLogScrollHeightRow() {
+  const messages = useMessages();
+  const setting = useSearchableSetting();
+  const gt = useGT();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...setting("work-log-scroll-height")}
+      description={gt(
+        "Control the max height of expanded thinking and tool call scroll boxes. Drag the bottom edge of any scroll box to resize it, or choose Full to expand inline.",
+      )}
+      resetAction={
+        settings.workLogScrollHeight !== DEFAULT_UNIFIED_SETTINGS.workLogScrollHeight ? (
+          <SettingResetButton
+            ariaLabel={gt("Reset activity scroll box height to default")}
+            onClick={() =>
+              updateSettings({ workLogScrollHeight: DEFAULT_UNIFIED_SETTINGS.workLogScrollHeight })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={settings.workLogScrollHeight}
+          onValueChange={(value) => {
+            if (isWorkLogScrollHeight(value)) updateSettings({ workLogScrollHeight: value });
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            className="w-full sm:w-48"
+            aria-label={gt("Activity scroll box height")}
+          >
+            <SelectValue>
+              {messages(WORK_LOG_SCROLL_HEIGHT_LABELS[settings.workLogScrollHeight])}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {WorkLogScrollHeight.literals.map((value) => (
+              <SelectItem key={value} value={value}>
+                {messages(WORK_LOG_SCROLL_HEIGHT_LABELS[value])}
               </SelectItem>
             ))}
           </SelectPopup>

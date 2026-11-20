@@ -509,6 +509,15 @@ function ThreadDetailBody(
   const toolCallVisibility = AsyncResult.isSuccess(preferences)
     ? (preferences.value.toolCallVisibility ?? "showAll")
     : "showAll";
+  const expandThinkingByDefault = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.expandThinkingByDefault ?? false)
+    : false;
+  const expandToolCallsByDefault = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.expandToolCallsByDefault ?? false)
+    : false;
+  const workLogScrollHeight = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.workLogScrollHeight ?? "default")
+    : "default";
   const queuedCount = useThreadQueuedCount(props.selectedThreadDetailRef);
   const turnSubagents = useThreadTurnSubagents(props.selectedThreadDetailRef);
   const agentsSegment = resolveSubagentPillSegment(turnSubagents, messages);
@@ -1481,6 +1490,9 @@ function ThreadDetailBody(
               <ColumnWidth width={columnWidth}>
                 <ThreadFeed
                   toolCallVisibility={toolCallVisibility}
+                  expandThinkingByDefault={expandThinkingByDefault}
+                  expandToolCallsByDefault={expandToolCallsByDefault}
+                  workLogScrollHeight={workLogScrollHeight}
                   environmentId={props.environmentId}
                   threadId={props.selectedThread.id}
                   detailRef={props.selectedThreadDetailRef}

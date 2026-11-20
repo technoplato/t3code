@@ -1,5 +1,9 @@
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
-import { WorkLogButton, WorkLogList, WorkLogRow } from "./WorkLog";
+import { WorkLogButton, WorkLogList, WorkLogResizeHandle, WorkLogRow } from "./WorkLog";
+import {
+  resolveWorkGroupBaseMaxHeightCss,
+  useCustomWorkLogScrollHeightPx,
+} from "./workLogScrollHeight";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { type ToolActivityIcon } from "@t3tools/contracts";
 import {
@@ -199,9 +203,14 @@ function ExpandedWorkGroupEntries({
 }) {
   const {
     workGroupViewState: viewState,
+    expandThinkingByDefault,
+    workLogScrollHeight,
     onToggleWorkEntry,
     onWorkEntryContentReady,
   } = use(TimelineRowCtx);
+  const customHeightPx = useCustomWorkLogScrollHeightPx();
+  const baseMaxHeightCss = resolveWorkGroupBaseMaxHeightCss(workLogScrollHeight, customHeightPx);
+  const isFullHeight = baseMaxHeightCss === undefined;
   const gt = useGT();
   const [initialScrollIndex] = useState(() =>
     resolveWorkGroupScrollIndex(entries, viewState.scrollPositions.get(anchorKey)),
@@ -291,18 +300,42 @@ function ExpandedWorkGroupEntries({
   const updateExpandedContentHeight = () => {
     const state = listRef.current?.getState();
     let height = 0;
-    for (const entryId of viewState.expandedEntries) {
-      if (state?.indexByKey(entryId) === undefined) continue;
+    for (const entry of entries) {
+      const entryExpanded =
+        viewState.expandedEntries.has(entry.id) ||
+        (expandThinkingByDefault &&
+          entry.itemType === "reasoning" &&
+          !viewState.collapsedEntries.has(entry.id));
+      if (!entryExpanded) continue;
+      if (state?.indexByKey(entry.id) === undefined) continue;
       height += Math.max(
         0,
-        (state.sizes.get(entryId) ?? compactWorkEntryHeight) - compactWorkEntryHeight,
+        (state.sizes.get(entry.id) ?? compactWorkEntryHeight) - compactWorkEntryHeight,
       );
     }
     setExpandedContentHeight(height);
   };
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads expanded row sizes from LegendList's measured state after layout
-  useLayoutEffect(updateExpandedContentHeight, [entries, updateExpandedContentHeight]);
+  useLayoutEffect(updateExpandedContentHeight, [
+    entries,
+    expandThinkingByDefault,
+    updateExpandedContentHeight,
+  ]);
+
+  if (isFullHeight) {
+    return (
+      <WorkGroupViewCtx value={groupView}>
+        <WorkLogList>
+          <div role="region" aria-label={gt("Tool calls")} data-tool-group-scroll>
+            {entries.map((item) => (
+              <SimpleWorkEntryRow key={item.id} workEntry={item} workspaceRoot={workspaceRoot} />
+            ))}
+          </div>
+        </WorkLogList>
+      </WorkGroupViewCtx>
+    );
+  }
 
   return (
     <WorkGroupViewCtx value={groupView}>
@@ -335,11 +368,15 @@ function ExpandedWorkGroupEntries({
           role="region"
           aria-label={gt("Tool calls")}
           data-tool-group-scroll
-          style={{ maxHeight: `calc(min(18rem, 50dvh) + ${expandedContentHeight}px)` }}
+          style={{ maxHeight: `calc(${baseMaxHeightCss} + ${expandedContentHeight}px)` }}
           className={cn(
             "scrollbar-gutter-stable scroll-py-6 overflow-x-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
             getVirtualizedScrollFadeClassName(fades),
           )}
+        />
+        <WorkLogResizeHandle
+          getTargetElement={() => listRef.current?.getScrollableNode() ?? null}
+          offsetPx={expandedContentHeight}
         />
       </WorkLogList>
     </WorkGroupViewCtx>
@@ -468,7 +505,7 @@ export function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind:
       type="button"
       className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-expanded={row.expanded === true}
-      onClick={() => ctx.onToggleWorkGroup(groupId, row.id)}
+      onClick={() => ctx.onToggleWorkGroup(groupId, row.id, row.expanded === true)}
     >
       {activity}
     </button>
@@ -619,7 +656,7 @@ export function LiveWorkEntryTimelineRow({
           : undefined
       }
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     >
       {thoughtLine ? (
         <WorkLogRow
@@ -701,7 +738,7 @@ export function WorkGroupToggleTimelineRow({
       expanded={row.expanded}
       createdAt={row.createdAt}
       timestampFormat={ctx.timestampFormat}
-      onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     />
   );
 }

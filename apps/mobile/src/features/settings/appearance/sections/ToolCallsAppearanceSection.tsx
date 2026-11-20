@@ -1,6 +1,6 @@
 import { msg, T, useGT, useMessages } from "gt-react-native";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { ToolCallVisibility } from "@t3tools/contracts/settings";
+import type { ToolCallVisibility, WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import { AsyncResult } from "effect/reactivity";
 import { View } from "react-native";
 
@@ -8,6 +8,7 @@ import { AppText as Text } from "../../../../components/ui/AppText";
 import { ListChoiceRow } from "../../../../components/ui/ListChoiceRow";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../../../state/preferences";
 import { SettingsSection } from "../../components/SettingsSection";
+import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 
 const TOOL_CALL_VISIBILITY_OPTIONS: ReadonlyArray<{
   readonly value: ToolCallVisibility;
@@ -19,35 +20,92 @@ const TOOL_CALL_VISIBILITY_OPTIONS: ReadonlyArray<{
   { value: "zen", label: msg("Zen", { $context: "tool call visibility: only final answers" }) },
 ];
 
+const WORK_LOG_SCROLL_HEIGHT_OPTIONS: ReadonlyArray<{
+  readonly value: WorkLogScrollHeight;
+  readonly label: string;
+}> = [
+  { value: "default", label: msg("Default") },
+  { value: "tall", label: msg("Tall") },
+  { value: "full", label: msg("Full (no scroll box)") },
+];
+
 export function ToolCallsAppearanceSection() {
   const gt = useGT();
   const m = useMessages();
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const selected = AsyncResult.isSuccess(preferences)
-    ? (preferences.value.toolCallVisibility ?? "showAll")
-    : null;
+  const loaded = AsyncResult.isSuccess(preferences);
+  const selected = loaded ? (preferences.value.toolCallVisibility ?? "showAll") : null;
+  const expandThinkingByDefault = loaded
+    ? (preferences.value.expandThinkingByDefault ?? false)
+    : false;
+  const expandToolCallsByDefault = loaded
+    ? (preferences.value.expandToolCallsByDefault ?? false)
+    : false;
+  const workLogScrollHeight = loaded ? (preferences.value.workLogScrollHeight ?? "default") : null;
 
   return (
-    <View className="gap-3">
-      <SettingsSection title={gt("Tool calls in chat")}>
-        {TOOL_CALL_VISIBILITY_OPTIONS.map((option, index) => (
-          <ListChoiceRow
-            key={option.value}
-            label={m(option.label)}
-            selected={selected === option.value}
-            separated={index > 0}
-            disabled={selected === null}
-            onPress={() => savePreferences({ toolCallVisibility: option.value })}
+    <View className="gap-4">
+      <View className="gap-2">
+        <SettingsSection title={gt("Tool calls in chat")}>
+          {TOOL_CALL_VISIBILITY_OPTIONS.map((option, index) => (
+            <ListChoiceRow
+              key={option.value}
+              label={m(option.label)}
+              selected={selected === option.value}
+              separated={index > 0}
+              disabled={selected === null}
+              onPress={() => savePreferences({ toolCallVisibility: option.value })}
+            />
+          ))}
+        </SettingsSection>
+        <Text className="px-2 text-sm text-foreground-muted">
+          <T>
+            Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen
+            shows only final answers. Approvals, questions, and errors always show.
+          </T>
+        </Text>
+      </View>
+
+      <View className="gap-2">
+        <SettingsSection title={gt("Default expansion")}>
+          <SettingsSwitchRow
+            label={gt("Expand thinking by default")}
+            subtitle={gt("Open agent thinking and reasoning traces automatically")}
+            value={expandThinkingByDefault}
+            disabled={!loaded}
+            onValueChange={(value) => savePreferences({ expandThinkingByDefault: value })}
           />
-        ))}
-      </SettingsSection>
-      <Text className="px-2 text-sm text-foreground-muted">
-        <T>
-          Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen
-          shows only final answers. Approvals, questions, and errors always show.
-        </T>
-      </Text>
+          <SettingsSwitchRow
+            label={gt("Expand tool calls by default")}
+            subtitle={gt("Open tool call groups and completed turn summaries automatically")}
+            value={expandToolCallsByDefault}
+            disabled={!loaded}
+            onValueChange={(value) => savePreferences({ expandToolCallsByDefault: value })}
+          />
+        </SettingsSection>
+      </View>
+
+      <View className="gap-2">
+        <SettingsSection title={gt("Activity scroll box height")}>
+          {WORK_LOG_SCROLL_HEIGHT_OPTIONS.map((option, index) => (
+            <ListChoiceRow
+              key={option.value}
+              label={m(option.label)}
+              selected={workLogScrollHeight === option.value}
+              separated={index > 0}
+              disabled={workLogScrollHeight === null}
+              onPress={() => savePreferences({ workLogScrollHeight: option.value })}
+            />
+          ))}
+        </SettingsSection>
+        <Text className="px-2 text-sm text-foreground-muted">
+          <T>
+            Control how tall expanded thinking and tool call scroll boxes grow. Choose Full to read
+            thinking and tool activity inline without an inner scroll box.
+          </T>
+        </Text>
+      </View>
     </View>
   );
 }

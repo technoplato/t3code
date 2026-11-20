@@ -5301,5 +5301,15 @@
   "ad208e3e32c85029": "Dölj alla",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Verktygsanrop i chatten",
-  "8d545d54c0a9e950": "Dölj kommandon, redigeringar och sökningar som agenter kör. Dölj lyckade behåller misslyckanden. Zen visar bara slutliga svar. Godkännanden, frågor och fel visas alltid."
+  "8d545d54c0a9e950": "Dölj kommandon, redigeringar och sökningar som agenter kör. Dölj lyckade behåller misslyckanden. Zen visar bara slutliga svar. Godkännanden, frågor och fel visas alltid.",
+  "e40e6d4ec89b5365": "Standard",
+  "49566d9951d1116a": "Hög",
+  "1656e9acf5ec7d90": "Full (ingen rullningsruta)",
+  "dc8bb7919472eb83": "Standardexpandering",
+  "2cbbfd0051e862ab": "Expandera tänkande som standard",
+  "5314e1d861ac9580": "Öppna agentens tänkande och resonemang automatiskt",
+  "4003173458442eb6": "Expandera verktygsanrop som standard",
+  "d7a443b7fdc16ca7": "Öppna verktygsanropsgrupper och avslutade tursammanfattningar automatiskt",
+  "f37fb72a3f8a5164": "Höjd på aktivitetens rullningsruta",
+  "611434a264b1ce8a": "Styr hur höga expanderade rullningsrutor för tänkande och verktygsanrop blir. Välj Full för att läsa direkt i flödet utan inre rullningsruta."
 }

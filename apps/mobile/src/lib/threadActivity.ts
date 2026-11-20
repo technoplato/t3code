@@ -370,6 +370,9 @@ const presentedActivityGroupsCache = new WeakMap<
     readonly isWorking: boolean;
     readonly activeTail: boolean;
     readonly locale: string | undefined;
+    readonly expandThinkingByDefault: boolean;
+    readonly expandToolCallsByDefault: boolean;
+    readonly defaultExpandedByGroupId: ReadonlyMap<string, boolean>;
     readonly rows: ReadonlyArray<ThreadFeedEntry>;
   }
 >();
@@ -1508,6 +1511,16 @@ function isUserMessageEntry(entry: ThreadFeedEntry | undefined): boolean {
   return entry?.type === "message" && entry.message.role === "user";
 }
 
+function optionalSetsEqual<T>(
+  left: ReadonlySet<T> | undefined,
+  right: ReadonlySet<T> | undefined,
+): boolean {
+  if (left === right) return true;
+  if ((left?.size ?? 0) === 0 && (right?.size ?? 0) === 0) return true;
+  if (!left || !right) return false;
+  return setsEqual(left, right);
+}
+
 /**
  * A user message starts every fold and is never hidden or grouped, so the
  * rows before it depend only on the entries before it, their runs, and the
@@ -1533,6 +1546,12 @@ function presentationRestart(
     previous.runlessWorkActive !== runlessWorkActive ||
     previous.display.toolCallVisibility !== display.toolCallVisibility ||
     previous.display.revealedMessageId !== display.revealedMessageId ||
+    Boolean(previous.display.expandThinkingByDefault) !==
+      Boolean(display.expandThinkingByDefault) ||
+    Boolean(previous.display.expandToolCallsByDefault) !==
+      Boolean(display.expandToolCallsByDefault) ||
+    !optionalSetsEqual(previous.display.collapsedRunIds, display.collapsedRunIds) ||
+    !optionalSetsEqual(previous.display.collapsedWorkGroupIds, display.collapsedWorkGroupIds) ||
     !setsEqual(previous.expandedRunIds, expandedRunIds) ||
     !setsEqual(previous.expandedWorkGroupIds, expandedWorkGroupIds)
   ) {
@@ -1681,6 +1700,10 @@ function liveAnswerPreview(feed: ReadonlyArray<ThreadFeedEntry>): string | null 
 export interface ThreadFeedDisplay {
   readonly toolCallVisibility: ToolCallVisibility;
   readonly revealedMessageId: MessageId | null;
+  readonly expandThinkingByDefault?: boolean;
+  readonly expandToolCallsByDefault?: boolean;
+  readonly collapsedRunIds?: ReadonlySet<RunId>;
+  readonly collapsedWorkGroupIds?: ReadonlySet<string>;
 }
 
 const DEFAULT_THREAD_FEED_DISPLAY: ThreadFeedDisplay = {
@@ -1732,7 +1755,14 @@ export function deriveThreadFeedPresentation(
     >
   > = [];
   const retainedFeedIndices: number[] = [];
-  const { toolCallVisibility, revealedMessageId } = display;
+  const {
+    toolCallVisibility,
+    revealedMessageId,
+    expandThinkingByDefault = false,
+    expandToolCallsByDefault = false,
+    collapsedRunIds,
+    collapsedWorkGroupIds,
+  } = display;
   const isWorking = activeWorkStartedAt !== null && latestRun?.status !== "preparing";
   const activeRunId = unsettledRunId(latestRun);
   const zen = toolCallVisibility === "zen";
@@ -1804,9 +1834,30 @@ export function deriveThreadFeedPresentation(
         failedRunIds,
         resolve,
       );
+  const sourceEntryById = new Map(sourceFeed.map((entry) => [entry.id, entry]));
+  const isRunFoldExpanded = (fold: ThreadFeedRunFold): boolean => {
+    if (expandedRunIds.has(fold.runId)) return true;
+    if (collapsedRunIds?.has(fold.runId)) return false;
+    if (expandToolCallsByDefault) return true;
+    if (!expandThinkingByDefault) return false;
+    for (const entryId of fold.hiddenEntryIds) {
+      const entry = sourceEntryById.get(entryId);
+      if (
+        entry?.type === "activity-group" &&
+        entry.activities.some(
+          (activity) =>
+            activity.workEntry.itemType === "reasoning" &&
+            (activity.workEntry.detail?.trim() ?? "") !== "",
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorId.values()) {
-    if (!expandedRunIds.has(fold.runId)) {
+    if (!isRunFoldExpanded(fold)) {
       for (const entryId of fold.hiddenEntryIds) collapsedEntryIds.add(entryId);
     }
   }
@@ -1860,7 +1911,7 @@ export function deriveThreadFeedPresentation(
       entry.runId === activeRunId;
     const fold = foldsByAnchorId.get(entry.id);
     if (fold) {
-      const expanded = expandedRunIds.has(fold.runId);
+      const expanded = isRunFoldExpanded(fold);
       let row = runFoldRowsCache.get(entry);
       if (
         !row ||
@@ -1922,6 +1973,9 @@ export function deriveThreadFeedPresentation(
         result,
         entry,
         expandedWorkGroupIds,
+        collapsedWorkGroupIds,
+        expandThinkingByDefault,
+        expandToolCallsByDefault,
         activeRunId,
         isWorking,
         isActiveTailGroup,
@@ -2130,6 +2184,9 @@ function appendPresentedFeedEntry(
     { readonly type: "run-fold" | "work-toggle" | "thinking" | "viewed-images" }
   >,
   expandedWorkGroupIds: ReadonlySet<string>,
+  collapsedWorkGroupIds: ReadonlySet<string> | undefined,
+  expandThinkingByDefault: boolean,
+  expandToolCallsByDefault: boolean,
   activeRunId: RunId | null,
   isWorking: boolean,
   activeTail: boolean,
@@ -2150,6 +2207,12 @@ function appendPresentedFeedEntry(
     return;
   }
 
+  const resolveExpanded = (groupId: string, defaultExpanded: boolean): boolean => {
+    if (expandedWorkGroupIds.has(groupId)) return true;
+    if (collapsedWorkGroupIds?.has(groupId)) return false;
+    return defaultExpanded;
+  };
+
   let cached = presentedActivityGroupsCache.get(entry);
   if (
     !cached ||
@@ -2157,21 +2220,40 @@ function appendPresentedFeedEntry(
     cached.isWorking !== isWorking ||
     cached.activeTail !== activeTail ||
     cached.locale !== locale ||
+    cached.expandThinkingByDefault !== expandThinkingByDefault ||
+    cached.expandToolCallsByDefault !== expandToolCallsByDefault ||
     cached.rows.some(
-      (row) => row.type === "work-toggle" && expandedWorkGroupIds.has(row.groupId) !== row.expanded,
+      (row) =>
+        row.type === "work-toggle" &&
+        resolveExpanded(row.groupId, cached!.defaultExpandedByGroupId.get(row.groupId) ?? false) !==
+          row.expanded,
     )
   ) {
     const rows: ThreadFeedEntry[] = [];
+    const defaultExpandedByGroupId = new Map<string, boolean>();
     appendActivityGroupRows(
       rows,
       entry,
       expandedWorkGroupIds,
+      collapsedWorkGroupIds,
+      expandThinkingByDefault,
+      expandToolCallsByDefault,
+      defaultExpandedByGroupId,
       activeRunId,
       isWorking,
       activeTail,
       resolve,
     );
-    cached = { activeRunId, isWorking, activeTail, locale, rows };
+    cached = {
+      activeRunId,
+      isWorking,
+      activeTail,
+      locale,
+      expandThinkingByDefault,
+      expandToolCallsByDefault,
+      defaultExpandedByGroupId,
+      rows,
+    };
     presentedActivityGroupsCache.set(entry, cached);
   }
   for (const row of cached.rows) {
@@ -2183,6 +2265,10 @@ function appendActivityGroupRows(
   result: ThreadFeedEntry[],
   entry: ThreadFeedActivityGroup,
   expandedWorkGroupIds: ReadonlySet<string>,
+  collapsedWorkGroupIds: ReadonlySet<string> | undefined,
+  expandThinkingByDefault: boolean,
+  expandToolCallsByDefault: boolean,
+  defaultExpandedByGroupId: Map<string, boolean>,
   activeRunId: RunId | null,
   isWorking: boolean,
   activeTail: boolean,
@@ -2218,6 +2304,10 @@ function appendActivityGroupRows(
       groupableRun,
       groupId,
       expandedWorkGroupIds,
+      collapsedWorkGroupIds,
+      expandThinkingByDefault,
+      expandToolCallsByDefault,
+      defaultExpandedByGroupId,
       activeRunId,
       isWorking,
       activeTail && isTrailingRun,
@@ -2260,12 +2350,29 @@ function appendToolGroupRows(
   activities: ReadonlyArray<ThreadFeedActivity>,
   groupId: string,
   expandedWorkGroupIds: ReadonlySet<string>,
+  collapsedWorkGroupIds: ReadonlySet<string> | undefined,
+  expandThinkingByDefault: boolean,
+  expandToolCallsByDefault: boolean,
+  defaultExpandedByGroupId: Map<string, boolean>,
   activeRunId: RunId | null,
   isWorking: boolean,
   activeTail: boolean,
   resolve: MessageResolver,
 ): void {
-  const expanded = expandedWorkGroupIds.has(groupId);
+  const defaultExpanded =
+    expandToolCallsByDefault ||
+    (expandThinkingByDefault &&
+      activities.some(
+        (activity) =>
+          activity.workEntry.itemType === "reasoning" &&
+          (activity.workEntry.detail?.trim() ?? "") !== "",
+      ));
+  defaultExpandedByGroupId.set(groupId, defaultExpanded);
+  const expanded = expandedWorkGroupIds.has(groupId)
+    ? true
+    : collapsedWorkGroupIds?.has(groupId)
+      ? false
+      : defaultExpanded;
   const latestActiveActivity = activities.findLast(
     (activity) =>
       isWorking && activity.lifecycleStatus === "inProgress" && activity.runId === activeRunId,

@@ -50,6 +50,7 @@ import {
   type ThreadId,
   type ToolActivityIcon,
 } from "@t3tools/contracts";
+import type { WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
@@ -429,10 +430,37 @@ function isFreshRow(createdAt: string): boolean {
 const WORK_ROW_HEIGHT = THREAD_WORK_ROW_MIN_HEIGHT;
 const WORK_ROW_GAP = 1;
 const WORK_LOG_BOTTOM_MARGIN = 3.5;
-const WORK_GROUP_MAX_HEIGHT = 256;
+const WORK_GROUP_MAX_HEIGHT_DEFAULT = 256;
+const WORK_GROUP_MAX_HEIGHT_TALL = 480;
+const REASONING_MAX_HEIGHT_DEFAULT = 384;
+const REASONING_MAX_HEIGHT_TALL = 560;
 const WORK_GROUP_EDGE_FADE_HEIGHT = 12;
 
 export const WORK_GROUP_TOGGLE_HEIGHT = THREAD_WORK_ROW_MIN_HEIGHT;
+
+export function isWorkRowExpanded(
+  row: ThreadFeedActivity,
+  expandedRows: Readonly<Record<string, boolean>>,
+  expandThinkingByDefault: boolean,
+): boolean {
+  const explicit = expandedRows[row.id];
+  if (explicit !== undefined) return explicit;
+  return (
+    expandThinkingByDefault &&
+    row.workEntry.itemType === "reasoning" &&
+    (row.workEntry.detail?.trim() ?? "") !== ""
+  );
+}
+
+function resolveWorkGroupMaxHeight(scrollHeight: WorkLogScrollHeight): number | undefined {
+  if (scrollHeight === "full") return undefined;
+  return scrollHeight === "tall" ? WORK_GROUP_MAX_HEIGHT_TALL : WORK_GROUP_MAX_HEIGHT_DEFAULT;
+}
+
+function resolveReasoningMaxHeight(scrollHeight: WorkLogScrollHeight): number | undefined {
+  if (scrollHeight === "full") return undefined;
+  return scrollHeight === "tall" ? REASONING_MAX_HEIGHT_TALL : REASONING_MAX_HEIGHT_DEFAULT;
+}
 
 function workLogRowsHeight(
   activities: ReadonlyArray<ThreadFeedActivity>,
@@ -444,6 +472,7 @@ function workLogRowsHeight(
 export function collapsedWorkLogHeight(
   activities: ReadonlyArray<ThreadFeedActivity>,
   continues = false,
+  workLogScrollHeight: WorkLogScrollHeight = "default",
 ): number {
   const bottomMargin = continues ? 0 : WORK_LOG_BOTTOM_MARGIN;
   if (activities.length === 0) {
@@ -453,9 +482,12 @@ export function collapsedWorkLogHeight(
     return bottomMargin + WORK_ROW_HEIGHT;
   }
   const height = workLogRowsHeight(activities);
+  const maxHeight = resolveWorkGroupMaxHeight(workLogScrollHeight);
   return (
     bottomMargin +
-    (activities[0]?.groupedToolDetail ? Math.min(height, WORK_GROUP_MAX_HEIGHT) : height)
+    (activities[0]?.groupedToolDetail && maxHeight !== undefined
+      ? Math.min(height, maxHeight)
+      : height)
   );
 }
 
@@ -467,6 +499,8 @@ interface ThreadWorkLogProps {
   readonly workspaceRoot?: string | null | undefined;
   readonly copiedRowId: string | null;
   readonly expandedRows: Readonly<Record<string, boolean>>;
+  readonly expandThinkingByDefault?: boolean | undefined;
+  readonly workLogScrollHeight?: WorkLogScrollHeight | undefined;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   readonly scrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
   readonly iconSubtleColor: ColorValue;
@@ -474,20 +508,28 @@ interface ThreadWorkLogProps {
   readonly themeAppearance: "light" | "dark";
   readonly onCopyRow: (rowId: string, value: string) => void;
   /** `groupId` is the group a lone call stands in for; it opens and closes with the row. */
-  readonly onToggleRow: (rowId: string, anchorKey: string, groupId?: string) => void;
+  readonly onToggleRow: (
+    rowId: string,
+    anchorKey: string,
+    groupId?: string,
+    currentlyExpanded?: boolean,
+  ) => void;
   readonly renderImage: MarkdownImageRenderer;
   readonly renderReasoning: (text: string) => ReactNode;
   readonly onPressPreview: (source: FilePreviewSource) => void;
 }
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
+  const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
+  const workLogScrollHeight = props.workLogScrollHeight ?? "default";
+  const workGroupMaxHeight = resolveWorkGroupMaxHeight(workLogScrollHeight);
   const renderRow = (row: ThreadFeedActivity) => (
     <ThreadWorkLogRow
       key={row.id}
       row={row}
       anchorKey={props.anchorKey}
       copied={props.copiedRowId === row.id}
-      expanded={props.expandedRows[row.id] ?? false}
+      expanded={isWorkRowExpanded(row, props.expandedRows, expandThinkingByDefault)}
       environmentId={props.environmentId}
       iconSubtleColor={props.iconSubtleColor}
       onCopyRow={props.onCopyRow}
@@ -528,6 +570,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         <ThreadReasoningGroup
           activities={props.activities}
           edgeFadeColor={props.edgeFadeColor}
+          maxHeight={resolveReasoningMaxHeight(workLogScrollHeight)}
           renderReasoning={props.renderReasoning}
         />
       </WorkLogBlock>
@@ -536,11 +579,13 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
 
   return (
     <WorkLogBlock continues={props.continuesWorkLog}>
-      {props.activities[0]?.groupedToolDetail ? (
+      {props.activities[0]?.groupedToolDetail && workGroupMaxHeight !== undefined ? (
         <ThreadWorkGroupList
           activities={props.activities}
           edgeFadeColor={props.edgeFadeColor}
           expandedRows={props.expandedRows}
+          expandThinkingByDefault={expandThinkingByDefault}
+          maxHeight={workGroupMaxHeight}
           groupId={props.anchorKey}
           rowSizing={props.rowSizing}
           scrollPositions={props.scrollPositions}
@@ -556,6 +601,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
 function ThreadReasoningGroup(props: {
   readonly activities: ReadonlyArray<ThreadFeedActivity>;
   readonly edgeFadeColor: string;
+  readonly maxHeight: number | undefined;
   readonly renderReasoning: (text: string) => ReactNode;
 }) {
   const scrollOffset = useSharedValue(0);
@@ -572,11 +618,21 @@ function ThreadReasoningGroup(props: {
     ),
   }));
 
+  if (props.maxHeight === undefined) {
+    return (
+      <View className="ml-7 py-1">
+        {props.activities.map((row) => (
+          <View key={row.id}>{props.renderReasoning(row.workEntry.detail ?? "")}</View>
+        ))}
+      </View>
+    );
+  }
+
   return (
     <View className="ml-7">
       <Animated.ScrollView
         nestedScrollEnabled
-        className="max-h-96"
+        style={{ maxHeight: props.maxHeight }}
         contentContainerClassName="py-1"
         scrollEventThrottle={16}
         onScroll={onScroll}
@@ -611,6 +667,8 @@ function ThreadWorkGroupList(props: {
   readonly activities: ReadonlyArray<ThreadFeedActivity>;
   readonly edgeFadeColor: string;
   readonly expandedRows: Readonly<Record<string, boolean>>;
+  readonly expandThinkingByDefault: boolean;
+  readonly maxHeight: number;
   readonly groupId: string;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   readonly scrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
@@ -635,7 +693,7 @@ function ThreadWorkGroupList(props: {
   }, [props.rowSizing.textSizeKey]);
   const loadedRef = useRef(false);
   const [contentHeight, setContentHeight] = useState(estimatedRowsHeight);
-  const height = Math.min(contentHeight, WORK_GROUP_MAX_HEIGHT);
+  const height = Math.min(contentHeight, props.maxHeight);
   const scrollOffset = useSharedValue(initialPosition?.scrollOffset ?? 0);
   const sharedValues = { scrollOffset };
 
@@ -685,7 +743,8 @@ function ThreadWorkGroupList(props: {
     };
   }, [handleMetricsChange]);
   const getFixedItemSize = (row: ThreadFeedActivity, index: number) =>
-    props.expandedRows[row.id] || props.rowSizing.fixedRowHeight === undefined
+    isWorkRowExpanded(row, props.expandedRows, props.expandThinkingByDefault) ||
+    props.rowSizing.fixedRowHeight === undefined
       ? undefined
       : props.rowSizing.fixedRowHeight + (index < props.activities.length - 1 ? WORK_ROW_GAP : 0);
   const renderItem = ({ item, index }: { item: ThreadFeedActivity; index: number }) => (
@@ -1084,7 +1143,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
           }
           if (canExpand) {
             void Haptics.selectionAsync();
-            props.onToggleRow(row.id, props.anchorKey, row.groupStandIn?.groupId);
+            props.onToggleRow(row.id, props.anchorKey, row.groupStandIn?.groupId, expanded);
           }
         }}
         onLongPress={() => props.onCopyRow(row.id, row.getCopyText())}

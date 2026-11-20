@@ -12141,5 +12141,20 @@
   "27d76249d09eb69f": "Guia de revisão pronto",
   "faa3bb26abb39c93": "O guia de revisão falhou",
   "b7df38b7d8792d78": "Abrir guia",
-  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão"
+  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão",
+  "3dc150ba37e2c907": "Arraste para redimensionar · Clique duas vezes para redefinir",
+  "49566d9951d1116a": "Alto",
+  "1656e9acf5ec7d90": "Completo (sem caixa de rolagem)",
+  "2cbbfd0051e862ab": "Expandir raciocínio por padrão",
+  "4003173458442eb6": "Expandir chamadas de ferramentas por padrão",
+  "f37fb72a3f8a5164": "Altura da caixa de rolagem de atividade",
+  "c76f6dc3993912b2": "Expande automaticamente os rastros de raciocínio do agente em vez de recolhê-los em uma prévia de uma linha. Você ainda pode clicar em qualquer um para recolher.",
+  "aaa05960bb333dcf": "Redefinir expandir raciocínio por padrão",
+  "eb7576eff8c47734": "Expande automaticamente grupos de chamadas de ferramentas e resumos de turnos concluídos em vez de recolhê-los. Você ainda pode clicar em qualquer grupo para recolher.",
+  "c08ca91481478035": "Redefinir expandir chamadas de ferramentas por padrão",
+  "138032187d83a73e": "Controla a altura máxima das caixas de rolagem de raciocínio e chamadas de ferramentas. Arraste a borda inferior para redimensionar ou escolha Completo para expandir diretamente.",
+  "135367b7bf88471a": "Redefinir altura da caixa de rolagem de atividade para o padrão",
+  "f8830ede8a2df825": "raciocínio pensamento rastro abrir expandido atividade registro",
+  "aec2aafa802ba8c3": "chamadas ferramentas registro atividade trabalhado abrir expandido grupos",
+  "431dd8a666e6d848": "raciocínio pensamento chamadas ferramentas caixa rolagem altura alto completo redimensionar"
 }

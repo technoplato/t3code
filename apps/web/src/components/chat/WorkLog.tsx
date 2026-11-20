@@ -1,12 +1,21 @@
+import type { WorkLogScrollHeight } from "@t3tools/contracts/settings";
+import { useGT } from "gt-react";
 import {
   createContext,
   use,
   useLayoutEffect,
   useRef,
   type ComponentProps,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import { cn } from "../../lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  resolveReasoningMaxHeightCss,
+  setCustomWorkLogScrollHeightPx,
+  useCustomWorkLogScrollHeightPx,
+} from "./workLogScrollHeight";
 
 const GroupedRows = createContext(false);
 
@@ -127,44 +136,136 @@ export function WorkLogRow({
 
 const LIVE_EDGE_PX = 4;
 
+export function WorkLogResizeHandle({
+  getTargetElement,
+  offsetPx = 0,
+  className,
+}: {
+  getTargetElement: () => HTMLElement | null;
+  offsetPx?: number;
+  className?: string;
+}) {
+  const gt = useGT();
+  const dragRef = useRef<{ pointerId: number; startY: number; startBaseHeight: number } | null>(
+    null,
+  );
+  const label = gt("Drag to resize · Double-click to reset");
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    event.preventDefault();
+    const target = getTargetElement();
+    if (!target) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startBaseHeight: Math.max(0, target.getBoundingClientRect().height - offsetPx),
+    };
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    setCustomWorkLogScrollHeightPx(drag.startBaseHeight + (event.clientY - drag.startY));
+  };
+
+  const endDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    dragRef.current = null;
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={label}
+            data-work-log-resize-handle
+            className={cn(
+              "group/resize flex h-3 w-full cursor-ns-resize touch-none items-center justify-center select-none",
+              className,
+            )}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              setCustomWorkLogScrollHeightPx(null);
+            }}
+          />
+        }
+      >
+        <span className="h-0.5 w-10 rounded-full bg-border/60 transition-colors group-hover/resize:bg-muted-foreground/70" />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 export function WorkLogDetails({
   children,
   kind = "text",
   followLive = false,
+  scrollHeight = "default",
 }: {
   children: ReactNode;
   kind?: "text" | "panel" | "media";
-
   followLive?: boolean;
+  scrollHeight?: WorkLogScrollHeight;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const atLiveEdgeRef = useRef(true);
+  const customHeightPx = useCustomWorkLogScrollHeightPx();
+  const textMaxHeight =
+    kind === "text" ? resolveReasoningMaxHeightCss(scrollHeight, customHeightPx) : undefined;
+  const isCappedText = kind === "text" && textMaxHeight !== undefined;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pins the scroller's scrollTop to the bottom after each commit while following live output
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
-    if (followLive && atLiveEdgeRef.current && scroller) {
+    if (followLive && isCappedText && atLiveEdgeRef.current && scroller) {
       scroller.scrollTop = scroller.scrollHeight;
     }
   });
   return (
     <div
-      ref={scrollerRef}
-      onScroll={(event) => {
-        const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
-        atLiveEdgeRef.current = scrollHeight - scrollTop - clientHeight <= LIVE_EDGE_PX;
-      }}
-      className={cn(
-        "cursor-auto",
-        kind === "text"
-          ? "ms-7 flex max-h-96 flex-col gap-3 overflow-auto px-0.5 py-1 select-text"
-          : kind === "panel"
-            ? "mt-0.5 mb-1.5 pb-2"
-            : "mt-1",
-      )}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      {children}
+      <div
+        ref={scrollerRef}
+        onScroll={
+          isCappedText
+            ? (event) => {
+                const { scrollHeight: totalHeight, scrollTop, clientHeight } = event.currentTarget;
+                atLiveEdgeRef.current = totalHeight - scrollTop - clientHeight <= LIVE_EDGE_PX;
+              }
+            : undefined
+        }
+        style={textMaxHeight ? { maxHeight: textMaxHeight } : undefined}
+        className={cn(
+          "cursor-auto",
+          kind === "text"
+            ? isCappedText
+              ? "ms-7 flex flex-col gap-3 overflow-auto px-0.5 py-1 select-text"
+              : "ms-7 flex flex-col gap-3 px-0.5 py-1 select-text"
+            : kind === "panel"
+              ? "mt-0.5 mb-1.5 pb-2"
+              : "mt-1",
+        )}
+      >
+        {children}
+      </div>
+      {isCappedText ? (
+        <WorkLogResizeHandle getTargetElement={() => scrollerRef.current} className="ms-7 w-auto" />
+      ) : null}
     </div>
   );
 }

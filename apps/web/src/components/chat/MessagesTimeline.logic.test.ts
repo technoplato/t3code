@@ -5300,3 +5300,187 @@ describe("workEntryReadOutput", () => {
     ).toBe("/workspace/t3code/src/app.ts\n~/.claude/CLAUDE.md\n~/.gitconfig");
   });
 });
+
+describe("default expansion settings", () => {
+  const threadId = ThreadId.make("thread-default-expand");
+  const runThought = RunId.make("run-thought");
+  const runTools = RunId.make("run-tools");
+  const at = (second: number) =>
+    DateTime.makeUnsafe(`2026-06-20T00:00:${String(second).padStart(2, "0")}.000Z`);
+  const base = (id: string, runId: RunId, ordinal: number, second: number) => ({
+    id: TurnItemId.make(id),
+    threadId,
+    runId,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal,
+    status: "completed" as const,
+    title: null,
+    startedAt: at(second),
+    completedAt: at(second),
+    updatedAt: at(second),
+  });
+  const items: OrchestrationV2TurnItem[] = [
+    {
+      ...base("u-1", runThought, 1, 0),
+      type: "user_message",
+      messageId: MessageId.make("u-1"),
+      createdBy: "user",
+      creationSource: "web",
+      inputIntent: "turn_start",
+      text: "Explain this",
+      attachments: [],
+    },
+    {
+      ...base("r-1", runThought, 2, 1),
+      type: "reasoning",
+      text: "Let me trace the issue carefully.",
+      streaming: false,
+    },
+    {
+      ...base("r-2", runThought, 3, 2),
+      type: "reasoning",
+      text: "Confirmed the exact root cause.",
+      streaming: false,
+    },
+    {
+      ...base("a-1", runThought, 4, 3),
+      type: "assistant_message",
+      messageId: MessageId.make("a-1"),
+      text: "Here is the explanation.",
+      streaming: false,
+    },
+    {
+      ...base("u-2", runTools, 5, 10),
+      type: "user_message",
+      messageId: MessageId.make("u-2"),
+      createdBy: "user",
+      creationSource: "web",
+      inputIntent: "turn_start",
+      text: "Run tests",
+      attachments: [],
+    },
+    {
+      ...base("c-1", runTools, 6, 11),
+      type: "command_execution",
+      input: "pnpm test",
+      output: "ok",
+      exitCode: 0,
+    },
+    {
+      ...base("c-2", runTools, 7, 12),
+      type: "command_execution",
+      input: "pnpm lint",
+      output: "ok",
+      exitCode: 0,
+    },
+    {
+      ...base("a-2", runTools, 8, 13),
+      type: "assistant_message",
+      messageId: MessageId.make("a-2"),
+      text: "All green.",
+      streaming: false,
+    },
+  ];
+  const timelineEntries = deriveTimelineEntriesFromVisibleTurnItems({
+    visibleTurnItems: items.map((item) => ({
+      position: item.ordinal,
+      visibility: "local",
+      sourceThreadId: threadId,
+      sourceItemId: item.id,
+      item,
+    })),
+    optimisticMessages: [],
+  });
+  const latestRun = {
+    runId: runTools,
+    status: "completed" as const,
+    startedAt: DateTime.formatIso(at(10)),
+    completedAt: DateTime.formatIso(at(13)),
+  };
+
+  it("expands thinking folds and groups when expandThinkingByDefault is enabled while keeping tool-only runs collapsed", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandThinkingByDefault: true,
+    });
+    const thoughtFold = rows.find((row) => row.kind === "turn-fold" && row.runId === runThought);
+    const toolsFold = rows.find((row) => row.kind === "turn-fold" && row.runId === runTools);
+    const thoughtToggle = rows.find((row) => row.kind === "work-toggle");
+    const thoughtDetails = rows.find((row) => row.kind === "work" && row.isExpandedToolGroup);
+    expect(thoughtFold).toMatchObject({ expanded: true });
+    expect(toolsFold).toMatchObject({ expanded: false });
+    expect(thoughtToggle).toMatchObject({ expanded: true });
+    expect(thoughtDetails?.kind === "work" ? thoughtDetails.groupedEntries[0]?.detail : null).toBe(
+      "Let me trace the issue carefully.",
+    );
+
+    // Collapsing a default-expanded group or fold overrides the default cleanly.
+    const collapsed = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandThinkingByDefault: true,
+      collapsedWorkGroupIds: new Set(
+        thoughtToggle?.kind === "work-toggle" ? [thoughtToggle.groupId] : [],
+      ),
+    });
+    expect(collapsed.find((row) => row.kind === "work-toggle")).toMatchObject({ expanded: false });
+    expect(collapsed.some((row) => row.kind === "work" && row.isExpandedToolGroup)).toBe(false);
+
+    const collapsedFold = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandThinkingByDefault: true,
+      collapsedRunIds: new Set([runThought]),
+    });
+    expect(
+      collapsedFold.find((row) => row.kind === "turn-fold" && row.runId === runThought),
+    ).toMatchObject({ expanded: false });
+    expect(collapsedFold.some((row) => row.kind === "work-toggle")).toBe(false);
+  });
+
+  it("expands tool call groups and folds when expandToolCallsByDefault is enabled and honors collapse overrides", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandToolCallsByDefault: true,
+    });
+    const toolsFold = rows.find((row) => row.kind === "turn-fold" && row.runId === runTools);
+    const toggles = rows.filter((row) => row.kind === "work-toggle");
+    expect(toolsFold).toMatchObject({ expanded: true });
+    expect(toggles.length).toBe(2);
+    expect(toggles.every((row) => row.expanded)).toBe(true);
+
+    const collapsedToolGroup = toggles[1]!;
+    const afterCollapse = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandToolCallsByDefault: true,
+      collapsedWorkGroupIds: new Set([collapsedToolGroup.groupId]),
+    });
+    expect(
+      afterCollapse.find(
+        (row) => row.kind === "work-toggle" && row.groupId === collapsedToolGroup.groupId,
+      ),
+    ).toMatchObject({ expanded: false });
+  });
+});

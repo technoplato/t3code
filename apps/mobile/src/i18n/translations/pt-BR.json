@@ -5295,5 +5295,15 @@
   "ad208e3e32c85029": "Ocultar todas",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Chamadas de ferramentas no chat",
-  "8d545d54c0a9e950": "Oculta os comandos, edições e pesquisas que os agentes executam. \"Ocultar bem-sucedidas\" mantém as falhas. Zen mostra só as respostas finais. Aprovações, perguntas e erros sempre aparecem."
+  "8d545d54c0a9e950": "Oculta os comandos, edições e pesquisas que os agentes executam. \"Ocultar bem-sucedidas\" mantém as falhas. Zen mostra só as respostas finais. Aprovações, perguntas e erros sempre aparecem.",
+  "e40e6d4ec89b5365": "Padrão",
+  "49566d9951d1116a": "Alto",
+  "1656e9acf5ec7d90": "Completo (sem caixa de rolagem)",
+  "dc8bb7919472eb83": "Expansão padrão",
+  "2cbbfd0051e862ab": "Expandir raciocínio por padrão",
+  "5314e1d861ac9580": "Abrir rastros de raciocínio do agente automaticamente",
+  "4003173458442eb6": "Expandir chamadas de ferramentas por padrão",
+  "d7a443b7fdc16ca7": "Abrir grupos de chamadas de ferramentas e resumos de turnos automaticamente",
+  "f37fb72a3f8a5164": "Altura da caixa de rolagem de atividade",
+  "611434a264b1ce8a": "Controla a altura das caixas de rolagem de raciocínio e ferramentas. Escolha Completo para ler tudo diretamente sem uma caixa de rolagem interna."
 }

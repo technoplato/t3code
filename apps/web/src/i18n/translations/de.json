@@ -12142,5 +12142,20 @@
   "27d76249d09eb69f": "Review-Leitfaden bereit",
   "faa3bb26abb39c93": "Review-Leitfaden fehlgeschlagen",
   "b7df38b7d8792d78": "Leitfaden öffnen",
-  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden"
+  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden",
+  "3dc150ba37e2c907": "Zum Ändern der Größe ziehen · Doppelklick zum Zurücksetzen",
+  "49566d9951d1116a": "Hoch",
+  "1656e9acf5ec7d90": "Vollständig (kein Scrollbereich)",
+  "2cbbfd0051e862ab": "Denkprozess standardmäßig ausklappen",
+  "4003173458442eb6": "Werkzeugaufrufe standardmäßig ausklappen",
+  "f37fb72a3f8a5164": "Höhe des Aktivitäts-Scrollbereichs",
+  "c76f6dc3993912b2": "Denk- und Begründungsspuren des Agenten automatisch ausklappen statt auf eine Zeile zu kürzen. Du kannst jede Spur weiterhin per Klick einklappen.",
+  "aaa05960bb333dcf": "Standardmäßig ausgeklappten Denkprozess zurücksetzen",
+  "eb7576eff8c47734": "Werkzeugaufruf-Gruppen und abgeschlossene Zug-Zusammenfassungen automatisch ausklappen statt sie einzuklappen. Du kannst jede Gruppe weiterhin per Klick einklappen.",
+  "c08ca91481478035": "Standardmäßig ausgeklappte Werkzeugaufrufe zurücksetzen",
+  "138032187d83a73e": "Steuere die maximale Höhe ausgeklappter Denk- und Werkzeug-Scrollbereiche. Ziehe den unteren Rand zum Ändern der Größe oder wähle Vollständig zum direkten Ausklappen.",
+  "135367b7bf88471a": "Höhe des Aktivitäts-Scrollbereichs auf Standard zurücksetzen",
+  "f8830ede8a2df825": "denken begründung gedanken spur öffnen ausgeklappt aktivität protokoll",
+  "aec2aafa802ba8c3": "werkzeugaufrufe protokoll aktivität gearbeitet offen ausgeklappt gruppen",
+  "431dd8a666e6d848": "denken begründung werkzeugaufrufe scrollbereich höhe hoch vollständig größe ändern protokoll"
 }

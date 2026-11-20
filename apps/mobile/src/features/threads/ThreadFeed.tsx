@@ -82,7 +82,7 @@ import {
   type ScheduledTaskId,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import type { ToolCallVisibility } from "@t3tools/contracts/settings";
+import type { ToolCallVisibility, WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { hostedThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
@@ -252,6 +252,7 @@ import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { type ThreadWorkGroupScrollPosition } from "./thread-feed-scroll-position";
 import {
   collapsedWorkLogHeight,
+  isWorkRowExpanded,
   ThreadDisclosureChevron,
   THREAD_DISCLOSURE_TRANSITION_MS,
   ThreadWorkGroupToggle,
@@ -362,6 +363,9 @@ export interface ThreadFeedHistoryControls {
 
 export interface ThreadFeedProps {
   readonly toolCallVisibility?: ToolCallVisibility;
+  readonly expandThinkingByDefault?: boolean;
+  readonly expandToolCallsByDefault?: boolean;
+  readonly workLogScrollHeight?: WorkLogScrollHeight;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly preparingWorktree?: boolean;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
@@ -1884,7 +1888,7 @@ function RunFoldButton({
   entry: Extract<ThreadFeedEntry, { type: "run-fold" }>;
   environmentId: EnvironmentId;
   threadId: ThreadId;
-  onToggle: (runId: RunId) => void;
+  onToggle: (runId: RunId, currentlyExpanded: boolean) => void;
   rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   iconColor: ColorValue;
 }) {
@@ -1914,7 +1918,7 @@ function RunFoldButton({
   const toggle = () => {
     setFailed(false);
     if (error && entry.expanded) load();
-    else onToggle(entry.runId);
+    else onToggle(entry.runId, entry.expanded);
   };
 
   return (
@@ -1982,6 +1986,8 @@ function renderFeedEntry(
     readonly formatMessageTime: (input: string) => string;
     readonly copiedRowId: string | null;
     readonly expandedWorkRows: Record<string, boolean>;
+    readonly expandThinkingByDefault: boolean;
+    readonly workLogScrollHeight: WorkLogScrollHeight;
     readonly workRowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
@@ -1989,9 +1995,18 @@ function renderFeedEntry(
     readonly compactionLabelsByEntryId: ReadonlyMap<string, { title: string; compacting: string }>;
     readonly failedRunIds: ReadonlySet<RunId>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
-    readonly onToggleWorkGroup: (groupId: string, anchorKey?: string) => void;
-    readonly onToggleWorkRow: (rowId: string, anchorKey?: string, groupId?: string) => void;
-    readonly onToggleTurnFold: (runId: RunId) => void;
+    readonly onToggleWorkGroup: (
+      groupId: string,
+      anchorKey?: string,
+      currentlyExpanded?: boolean,
+    ) => void;
+    readonly onToggleWorkRow: (
+      rowId: string,
+      anchorKey?: string,
+      groupId?: string,
+      currentlyExpanded?: boolean,
+    ) => void;
+    readonly onToggleTurnFold: (runId: RunId, currentlyExpanded?: boolean) => void;
     readonly onOpenTurnDiff: (checkpoint: ThreadCheckpointSummary) => void;
     readonly onPressPreview: (source: FilePreviewSource) => void;
     readonly onPlaybackStart: () => void;
@@ -2191,7 +2206,7 @@ function renderFeedEntry(
             />
           ) : null
         }
-        onToggle={() => props.onToggleWorkGroup(entry.groupId, entry.id)}
+        onToggle={() => props.onToggleWorkGroup(entry.groupId, entry.id, entry.expanded)}
       />
     );
   }
@@ -2726,6 +2741,8 @@ function renderFeedEntry(
       anchorKey={entry.id}
       copiedRowId={props.copiedRowId}
       expandedRows={props.expandedWorkRows}
+      expandThinkingByDefault={props.expandThinkingByDefault}
+      workLogScrollHeight={props.workLogScrollHeight}
       rowSizing={props.workRowSizing}
       scrollPositions={props.workGroupScrollPositions}
       iconSubtleColor={iconSubtleColor}
@@ -2993,26 +3010,36 @@ function ThreadFeedPlaceholder(props: {
 function useThreadFeedPresentation(
   props: ThreadFeedProps,
   expandedTurnIds: ReadonlySet<RunId>,
+  collapsedTurnIds: ReadonlySet<RunId>,
   expandedWorkGroups: Record<string, boolean>,
   revealedMessageId: MessageId | null,
 ) {
   const [feedCache] = useState(createThreadFeedCache);
   const messages = useMessages();
   const locale = useLocale();
+  const expandedWorkGroupIds = new Set<string>();
+  const collapsedWorkGroupIds = new Set<string>();
+  for (const [groupId, expanded] of Object.entries(expandedWorkGroups)) {
+    if (expanded) expandedWorkGroupIds.add(groupId);
+    else collapsedWorkGroupIds.add(groupId);
+  }
   return appendPendingThreadMessages(
     deriveThreadFeedPresentation(
       props.feed,
       props.latestRun,
       expandedTurnIds,
-      new Set(
-        Object.entries(expandedWorkGroups)
-          .filter(([, expanded]) => expanded)
-          .map(([groupId]) => groupId),
-      ),
+      expandedWorkGroupIds,
       props.activeWorkStartedAt,
       props.runlessWorkActive ?? false,
       feedCache,
-      { toolCallVisibility: props.toolCallVisibility ?? "showAll", revealedMessageId },
+      {
+        toolCallVisibility: props.toolCallVisibility ?? "showAll",
+        revealedMessageId,
+        expandThinkingByDefault: props.expandThinkingByDefault ?? false,
+        expandToolCallsByDefault: props.expandToolCallsByDefault ?? false,
+        collapsedRunIds: collapsedTurnIds,
+        collapsedWorkGroupIds,
+      },
       messages,
       locale,
     ),
@@ -3176,16 +3203,24 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly expandedTurnIds: ReadonlySet<RunId>;
+    readonly collapsedTurnIds: ReadonlySet<RunId>;
     readonly revealedMessageId: MessageId | null;
   }>({
     copiedRowId: null,
     expandedWorkGroups: {},
     expandedWorkRows: {},
     expandedTurnIds: new Set(),
+    collapsedTurnIds: new Set(),
     revealedMessageId: null,
   });
-  const { copiedRowId, expandedWorkGroups, expandedWorkRows, expandedTurnIds, revealedMessageId } =
-    interactionState;
+  const {
+    copiedRowId,
+    expandedWorkGroups,
+    expandedWorkRows,
+    expandedTurnIds,
+    collapsedTurnIds,
+    revealedMessageId,
+  } = interactionState;
   const markdownLinkRequest = useRef<AbortController | null>(null);
   const onInlinePlaybackStart = () => {
     markdownLinkRequest.current?.abort();
@@ -3784,6 +3819,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     copiedRowId,
     expandedWorkGroups,
     expandedWorkRows,
+    expandThinkingByDefault: props.expandThinkingByDefault ?? false,
+    workLogScrollHeight: props.workLogScrollHeight ?? "default",
     workRowSizing,
     iconSubtleColor,
     markdownStyles,
@@ -3868,7 +3905,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const [appendPendingTurn] = useState(createPendingTurnAppender);
   const presentedFeed = appendGuestPendingMessages(
     appendPendingTurn(
-      useThreadFeedPresentation(props, expandedTurnIds, expandedWorkGroups, revealedMessageId),
+      useThreadFeedPresentation(
+        props,
+        expandedTurnIds,
+        collapsedTurnIds,
+        expandedWorkGroups,
+        revealedMessageId,
+      ),
       { zen: props.toolCallVisibility === "zen" },
       m,
     ),
@@ -3882,11 +3925,16 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     !presentedFeed.some((entry) => entry.type === "message" && entry.id === jumpToMessageId)
       ? messageFoldRunId(props.feed, jumpToMessageId, presentedFeed)
       : null;
-  if (jumpRunId && !expandedTurnIds.has(jumpRunId)) {
-    setInteractionState((current) => ({
-      ...current,
-      expandedTurnIds: new Set(current.expandedTurnIds).add(jumpRunId),
-    }));
+  if (jumpRunId && (!expandedTurnIds.has(jumpRunId) || collapsedTurnIds.has(jumpRunId))) {
+    setInteractionState((current) => {
+      const nextCollapsed = new Set(current.collapsedTurnIds);
+      nextCollapsed.delete(jumpRunId);
+      return {
+        ...current,
+        expandedTurnIds: new Set(current.expandedTurnIds).add(jumpRunId),
+        collapsedTurnIds: nextCollapsed,
+      };
+    });
   }
   const setupAnchorIndex = presentedFeed.findIndex(
     (entry) => entry.type === "message" && entry.message.role === "user",
@@ -3977,10 +4025,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           });
         }
       } else if (previous.status === "running" && latest.status === "interrupted") {
-        setInteractionState((current) => ({
-          ...current,
-          expandedTurnIds: new Set(current.expandedTurnIds).add(latest.runId),
-        }));
+        setInteractionState((current) => {
+          const nextCollapsed = new Set(current.collapsedTurnIds);
+          nextCollapsed.delete(latest.runId);
+          return {
+            ...current,
+            expandedTurnIds: new Set(current.expandedTurnIds).add(latest.runId),
+            collapsedTurnIds: nextCollapsed,
+          };
+        });
       }
     }
   }
@@ -4095,22 +4148,27 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }, 1200);
   };
 
-  const onToggleWorkGroup = (groupId: string, anchorKey?: string) => {
+  const onToggleWorkGroup = (groupId: string, anchorKey?: string, currentlyExpanded?: boolean) => {
     preserveDisclosurePosition(anchorKey ?? `work-toggle:${groupId}`);
     setInteractionState((current) => ({
       ...current,
       expandedWorkGroups: {
         ...current.expandedWorkGroups,
-        [groupId]: !(current.expandedWorkGroups[groupId] ?? false),
+        [groupId]: !(currentlyExpanded ?? current.expandedWorkGroups[groupId] ?? false),
       },
     }));
   };
 
   // Lone rows share their group's disclosure state so opened details survive a second call joining.
-  const onToggleWorkRow = (rowId: string, anchorKey?: string, groupId?: string) => {
+  const onToggleWorkRow = (
+    rowId: string,
+    anchorKey?: string,
+    groupId?: string,
+    currentlyExpanded?: boolean,
+  ) => {
     preserveDisclosurePosition(anchorKey ?? null);
     setInteractionState((current) => {
-      const expanded = !(current.expandedWorkRows[rowId] ?? false);
+      const expanded = !(currentlyExpanded ?? current.expandedWorkRows[rowId] ?? false);
       return {
         ...current,
         expandedWorkRows: { ...current.expandedWorkRows, [rowId]: expanded },
@@ -4121,16 +4179,24 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     });
   };
 
-  const onToggleTurnFold = (runId: RunId) => {
+  const onToggleTurnFold = (runId: RunId, currentlyExpanded?: boolean) => {
     preserveDisclosurePosition(`run-fold:${runId}`);
     setInteractionState((current) => {
-      const next = new Set(current.expandedTurnIds);
-      if (next.has(runId)) {
-        next.delete(runId);
+      const shouldExpand = !(currentlyExpanded ?? current.expandedTurnIds.has(runId));
+      const nextExpanded = new Set(current.expandedTurnIds);
+      const nextCollapsed = new Set(current.collapsedTurnIds);
+      if (shouldExpand) {
+        nextExpanded.add(runId);
+        nextCollapsed.delete(runId);
       } else {
-        next.add(runId);
+        nextExpanded.delete(runId);
+        nextCollapsed.add(runId);
       }
-      return { ...current, expandedTurnIds: next };
+      return {
+        ...current,
+        expandedTurnIds: nextExpanded,
+        collapsedTurnIds: nextCollapsed,
+      };
     });
   };
 
@@ -4176,10 +4242,16 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           return undefined;
         }
         return entry.activities.some(
-          (activity) => activity.prominent || expandedWorkRows[activity.id],
+          (activity) =>
+            activity.prominent ||
+            isWorkRowExpanded(activity, expandedWorkRows, props.expandThinkingByDefault ?? false),
         )
           ? undefined
-          : collapsedWorkLogHeight(entry.activities, entry.continuesWorkLog);
+          : collapsedWorkLogHeight(
+              entry.activities,
+              entry.continuesWorkLog,
+              props.workLogScrollHeight ?? "default",
+            );
       default:
         return undefined;
     }
@@ -4189,17 +4261,47 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // after the commit that hands it rows at the new geometry; clearing earlier
   // re-caches old sizes.
   const { textSizeKey } = workRowSizing;
+  const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
+  const workLogScrollHeight = props.workLogScrollHeight ?? "default";
   const hasHtmlRenders = presentedFeed.some((entry) => entry.type === "html-render");
-  const previousRowGeometry = useRef({ textSizeKey, contentWidth });
+  const previousRowGeometry = useRef({
+    textSizeKey,
+    contentWidth,
+    expandThinkingByDefault,
+    workLogScrollHeight,
+  });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears LegendList size caches after the commit that brings new row geometry
   useLayoutEffect(() => {
     const previous = previousRowGeometry.current;
-    if (previous.textSizeKey === textSizeKey && previous.contentWidth === contentWidth) return;
-    previousRowGeometry.current = { textSizeKey, contentWidth };
-    if (previous.textSizeKey !== textSizeKey || hasHtmlRenders) {
+    if (
+      previous.textSizeKey === textSizeKey &&
+      previous.contentWidth === contentWidth &&
+      previous.expandThinkingByDefault === expandThinkingByDefault &&
+      previous.workLogScrollHeight === workLogScrollHeight
+    )
+      return;
+    previousRowGeometry.current = {
+      textSizeKey,
+      contentWidth,
+      expandThinkingByDefault,
+      workLogScrollHeight,
+    };
+    if (
+      previous.textSizeKey !== textSizeKey ||
+      previous.expandThinkingByDefault !== expandThinkingByDefault ||
+      previous.workLogScrollHeight !== workLogScrollHeight ||
+      hasHtmlRenders
+    ) {
       listRef.current?.clearCaches({ mode: "sizes" });
     }
-  }, [textSizeKey, contentWidth, hasHtmlRenders, listRef]);
+  }, [
+    textSizeKey,
+    contentWidth,
+    expandThinkingByDefault,
+    workLogScrollHeight,
+    hasHtmlRenders,
+    listRef,
+  ]);
 
   const renderItem = (info: { item: GroupedThreadFeedRow; index: number }) => (
     <DisclosureRow
@@ -4251,6 +4353,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             threadId: props.threadId,
             copiedRowId,
             expandedWorkRows,
+            expandThinkingByDefault,
+            workLogScrollHeight,
             workRowSizing,
             workGroupScrollPositions,
             terminalAssistantMessageIds,

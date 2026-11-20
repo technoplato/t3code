@@ -2286,3 +2286,126 @@ it("caps live thought previews while preserving reasoning detail", () => {
   expect(JSON.parse(activity.getFullDetail()!).item).toMatchObject({ text });
   expect(activity.getCopyText()).toContain(text);
 });
+
+it("expands thinking and tool call folds/groups by default and honors collapse overrides", () => {
+  const thoughtRunId = RunId.make("run-default-thought");
+  const toolRunId = RunId.make("run-default-tools");
+  const thoughtItem: OrchestrationV2TurnItem = {
+    ...base("thought-default-1", "2026-06-20T00:00:01.000Z", 1),
+    runId: thoughtRunId,
+    type: "reasoning",
+    text: "Tracing the root cause step by step.",
+    streaming: false,
+  };
+  const feed = buildThreadFeed([
+    projected({ ...userMessage("2026-06-20T00:00:00.000Z"), runId: thoughtRunId }, 0),
+    projected(thoughtItem, 1),
+    projected(
+      {
+        ...assistantMessage("2026-06-20T00:00:02.000Z"),
+        id: TurnItemId.make("a-t"),
+        messageId: MessageId.make("a-t"),
+        runId: thoughtRunId,
+      },
+      2,
+    ),
+    projected(
+      {
+        ...userMessage("2026-06-20T00:00:10.000Z"),
+        id: TurnItemId.make("u-2"),
+        messageId: MessageId.make("u-2"),
+        runId: toolRunId,
+      },
+      3,
+    ),
+    projected(
+      { ...command("2026-06-20T00:00:11.000Z"), id: TurnItemId.make("c-1"), runId: toolRunId },
+      4,
+    ),
+    projected(
+      { ...command("2026-06-20T00:00:12.000Z"), id: TurnItemId.make("c-2"), runId: toolRunId },
+      5,
+    ),
+    projected(
+      {
+        ...assistantMessage("2026-06-20T00:00:13.000Z"),
+        id: TurnItemId.make("a-c"),
+        messageId: MessageId.make("a-c"),
+        runId: toolRunId,
+      },
+      6,
+    ),
+  ]);
+  const latestRun = {
+    runId: toolRunId,
+    status: "completed" as const,
+    startedAt: "2026-06-20T00:00:10.000Z",
+    completedAt: "2026-06-20T00:00:13.000Z",
+  };
+  const cache = createThreadFeedCache();
+
+  const thinkingExpanded = deriveThreadFeedPresentation(
+    feed,
+    latestRun,
+    new Set(),
+    new Set(),
+    null,
+    false,
+    cache,
+    {
+      toolCallVisibility: "showAll",
+      revealedMessageId: null,
+      expandThinkingByDefault: true,
+    },
+  );
+  expect(
+    thinkingExpanded.find((row) => row.type === "run-fold" && row.runId === thoughtRunId),
+  ).toMatchObject({ expanded: true });
+  expect(
+    thinkingExpanded.find((row) => row.type === "run-fold" && row.runId === toolRunId),
+  ).toMatchObject({ expanded: false });
+  const thoughtToggle = thinkingExpanded.find((row) => row.type === "work-toggle");
+  expect(thoughtToggle).toMatchObject({ expanded: true });
+
+  const collapsedThinking = deriveThreadFeedPresentation(
+    feed,
+    latestRun,
+    new Set(),
+    new Set(),
+    null,
+    false,
+    cache,
+    {
+      toolCallVisibility: "showAll",
+      revealedMessageId: null,
+      expandThinkingByDefault: true,
+      collapsedWorkGroupIds: new Set(
+        thoughtToggle?.type === "work-toggle" ? [thoughtToggle.groupId] : [],
+      ),
+    },
+  );
+  expect(collapsedThinking.find((row) => row.type === "work-toggle")).toMatchObject({
+    expanded: false,
+  });
+
+  const toolsExpanded = deriveThreadFeedPresentation(
+    feed,
+    latestRun,
+    new Set(),
+    new Set(),
+    null,
+    false,
+    cache,
+    {
+      toolCallVisibility: "showAll",
+      revealedMessageId: null,
+      expandToolCallsByDefault: true,
+    },
+  );
+  expect(
+    toolsExpanded.find((row) => row.type === "run-fold" && row.runId === toolRunId),
+  ).toMatchObject({ expanded: true });
+  const toolToggles = toolsExpanded.filter((row) => row.type === "work-toggle");
+  expect(toolToggles.length).toBe(2);
+  expect(toolToggles.every((row) => row.expanded)).toBe(true);
+});

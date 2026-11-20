@@ -1,5 +1,6 @@
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogDetails, WorkLogRow } from "./WorkLog";
+import { resolveToolOutputMaxHeightClassName } from "./workLogScrollHeight";
 import {
   getQuestionAnswerPreview,
   getQuestionAnswerText,
@@ -186,8 +187,8 @@ export function ThreadReadLabel({
   );
 }
 
-const toolCallExpandedBodyClassName =
-  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
+const toolCallExpandedBodyBaseClassName =
+  "cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
@@ -197,7 +198,7 @@ export function ReasoningTraceContent({ entries }: { entries: ReadonlyArray<Time
   const isStreaming = (entry: TimelineWorkEntry) =>
     isWorking && entry.runId === latestRunId && entry.toolLifecycleStatus === "inProgress";
   return (
-    <WorkLogDetails followLive={entries.some(isStreaming)}>
+    <WorkLogDetails followLive={entries.some(isStreaming)} scrollHeight={ctx.workLogScrollHeight}>
       {entries.map((entry) => (
         <ChatMarkdown
           key={entry.id}
@@ -295,9 +296,16 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       ? notificationChildThreadId(workEntry.projectedItem.item.source)
       : undefined;
   const groupView = use(WorkGroupViewCtx);
-  const [expanded, setExpanded] = useState(
-    () => groupView?.state.expandedEntries.has(workEntry.id) ?? false,
-  );
+  const isReasoning = workEntry.itemType === "reasoning";
+  const defaultExpanded =
+    isReasoning && ctx.expandThinkingByDefault && (workEntry.detail?.trim() ?? "") !== "";
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(() => {
+    if (!groupView) return null;
+    if (groupView.state.expandedEntries.has(workEntry.id)) return true;
+    if (groupView.state.collapsedEntries.has(workEntry.id)) return false;
+    return null;
+  });
+  const expanded = expandedOverride ?? defaultExpanded;
   const onInitialOutputReady = () => {
     if (groupView) groupView.onContentReady?.(workEntry.id);
     else props.onContentReady?.();
@@ -306,12 +314,17 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     const next = !expanded;
     if (groupView) {
       groupView.onToggleEntry(!next, workEntry.id);
-      if (next) groupView.state.expandedEntries.add(workEntry.id);
-      else groupView.state.expandedEntries.delete(workEntry.id);
+      if (next) {
+        groupView.state.expandedEntries.add(workEntry.id);
+        groupView.state.collapsedEntries.delete(workEntry.id);
+      } else {
+        groupView.state.expandedEntries.delete(workEntry.id);
+        groupView.state.collapsedEntries.add(workEntry.id);
+      }
     } else {
       props.onToggleEntry?.(!next);
     }
-    setExpanded(next);
+    setExpandedOverride(next);
   };
   const failureItem = workEntry.projectedItem?.item;
   const pendingApproval =
@@ -399,7 +412,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     showWarningIndicator || showDestructiveRowStyle
       ? undefined
       : (workEntry.toolIcon ?? workEntry.toolSource?.icon);
-  const isReasoning = workEntry.itemType === "reasoning";
   const questionHeading = workEntry.questionAnswer
     ? getQuestionTextPreview(workEntry.questionAnswer)
     : "";
@@ -677,7 +689,14 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
           ) : (
             <>
               {expandedBody ? (
-                <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
+                <pre
+                  className={cn(
+                    toolCallExpandedBodyBaseClassName,
+                    resolveToolOutputMaxHeightClassName(ctx.workLogScrollHeight),
+                  )}
+                >
+                  {expandedBody}
+                </pre>
               ) : null}
               {plainOutputFetches && workEntry.projectedItem ? (
                 <FetchedToolOutput
