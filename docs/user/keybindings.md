@@ -156,6 +156,10 @@ update an older server to enable it. Select **Retry** if a search fails. It defa
 `mod+f` outside terminals and previews. Press **Enter** or **Shift+Enter** to move between matches,
 and **Escape** to close find.
 
+`chat.previousMessage` (`mod+arrowup`) and `chat.nextMessage` (`mod+arrowdown`) jump to the
+beginning of the previous or next message in the active thread outside terminals, previews, and
+non-composer text inputs.
+
 ## Find on a browser page
 
 `preview.find` (`mod+f` while a browser has focus) searches the open page in the desktop app. It

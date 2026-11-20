@@ -2155,6 +2155,7 @@ export default function ChatView(props: ChatViewProps) {
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,
     scrollToEnd,
+    navigateToAdjacentMessageStable,
     onTimelineAnchorReadyStable,
     onTimelineAnchorSizeChangedStable,
     onTimelineFooterGrowStable,
@@ -2803,6 +2804,8 @@ export default function ChatView(props: ChatViewProps) {
           return false;
         openThreadFind(activeThreadKey);
       },
+      "chat.previousMessage": () => navigateToAdjacentMessageStable("previous"),
+      "chat.nextMessage": () => navigateToAdjacentMessageStable("next"),
       "composer.cycleHost": ({ event }) => {
         if (!canChangeEnvironment) return false;
         if (event.repeat) return;

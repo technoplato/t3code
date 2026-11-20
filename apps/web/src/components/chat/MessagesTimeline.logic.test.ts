@@ -33,6 +33,7 @@ import {
   liveAnswerPreview,
   deriveMessagesTimelineRowsWithState,
   isTimelineMinimapTurnVisible,
+  resolveAdjacentMessageNavigationTarget,
   resolveAssistantMessageCopyState,
   type MessagesTimelineRow,
   workEntryDisplayLabel,
@@ -5157,6 +5158,135 @@ describe("isTimelineMinimapTurnVisible", () => {
     expect(isTimelineMinimapTurnVisible(500, undefined, 200, 210)).toBe(false);
     expect(isTimelineMinimapTurnVisible(10, 500, 500, 510)).toBe(false);
     expect(isTimelineMinimapTurnVisible(10, 500, null, null)).toBe(false);
+  });
+});
+
+describe("resolveAdjacentMessageNavigationTarget", () => {
+  const makeMessageRow = (
+    id: string,
+    role: "user" | "assistant" | "system",
+    options?: { text?: string; suppressEmptyResponse?: boolean },
+  ): MessagesTimelineRow => ({
+    kind: "message",
+    id,
+    createdAt: "2026-11-20T12:00:00.000Z",
+    message: {
+      id: MessageId.make(id),
+      role,
+      runId: null,
+      text: options?.text ?? `${role} ${id}`,
+      createdAt: "2026-11-20T12:00:00.000Z",
+      updatedAt: "2026-11-20T12:00:00.000Z",
+      streaming: false,
+    },
+    showAssistantMeta: false,
+    showAssistantCopyButton: false,
+    assistantCopyStreaming: false,
+    ...(options?.suppressEmptyResponse ? { suppressEmptyResponse: true } : {}),
+  });
+
+  const rows: MessagesTimelineRow[] = [
+    makeMessageRow("user-1", "user"),
+    {
+      kind: "work",
+      id: "work-1",
+      createdAt: "2026-11-20T12:00:01.000Z",
+      groupedEntries: [],
+      isExpandedToolGroup: false,
+    },
+    makeMessageRow("empty-assistant", "assistant", { text: "", suppressEmptyResponse: true }),
+    makeMessageRow("assistant-1", "assistant"),
+    makeMessageRow("system-1", "system"),
+    makeMessageRow("user-2", "user"),
+    makeMessageRow("assistant-2", "assistant"),
+  ];
+  const positions = [0, 120, 180, 220, 700, 740, 900];
+  const positionAtIndex = (index: number) => positions[index];
+
+  it("jumps to the start of the current long message first, then steps through messages skipping work and hidden rows", () => {
+    // Scrolled deep inside assistant-2 (top 900): previous lands at the start of assistant-2.
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "previous",
+        scroll: 1400,
+        atStart: false,
+        atEnd: true,
+        positionAtIndex,
+      }),
+    ).toEqual({ kind: "row", rowIndex: 6, rowId: "assistant-2" });
+
+    // Already aligned at assistant-2 (scroll = 900 - 24): previous skips system/work/suppressed rows cleanly.
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "previous",
+        scroll: 876,
+        atStart: false,
+        atEnd: false,
+        positionAtIndex,
+      }),
+    ).toEqual({ kind: "row", rowIndex: 5, rowId: "user-2" });
+
+    // Rapid repeat before scroll settles steps cleanly from pendingRowId.
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "previous",
+        scroll: 1400,
+        atStart: false,
+        atEnd: true,
+        positionAtIndex,
+        pendingRowId: "user-2",
+      }),
+    ).toEqual({ kind: "row", rowIndex: 3, rowId: "assistant-1" });
+
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "previous",
+        scroll: 0,
+        atStart: true,
+        atEnd: false,
+        positionAtIndex,
+      }),
+    ).toBeNull();
+  });
+
+  it("steps forward across messages and scrolls to end from the final message", () => {
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "next",
+        scroll: 0,
+        atStart: true,
+        atEnd: false,
+        positionAtIndex,
+      }),
+    ).toEqual({ kind: "row", rowIndex: 3, rowId: "assistant-1" });
+
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "next",
+        scroll: 876,
+        atStart: false,
+        atEnd: false,
+        positionAtIndex,
+        pendingRowId: "assistant-2",
+      }),
+    ).toEqual({ kind: "end" });
+
+    expect(
+      resolveAdjacentMessageNavigationTarget({
+        rows,
+        direction: "next",
+        scroll: 1400,
+        atStart: false,
+        atEnd: true,
+        positionAtIndex,
+      }),
+    ).toBeNull();
   });
 });
 

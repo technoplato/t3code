@@ -28,7 +28,15 @@ import {
   type TimelineNavigation,
   type TimelineViewport,
 } from "./timelineViewport";
-import { resolveTimelineIsAtEnd, type MessagesTimelineRow } from "./MessagesTimeline.logic";
+import {
+  deriveNavigableMessageRowIndices,
+  resolveAdjacentMessageNavigationTarget,
+  resolveTimelineContentScroll,
+  resolveTimelineIsAtEnd,
+  resolveTimelineMinimapVisibleRange,
+  TIMELINE_MINIMAP_TARGET_OFFSET,
+  type MessagesTimelineRow,
+} from "./MessagesTimeline.logic";
 import { measuredEndOffset, settleListScroll } from "./useTimelinePositionRestore";
 import {
   releaseChatTimelineAnchor,
@@ -74,6 +82,7 @@ function createVisitScrollState(
       readonly offset: number;
     } | null,
     anchorScrollRestoreFrame: null as number | null,
+    pendingMessageNavRowId: null as string | null,
   };
 }
 type VisitScrollState = ReturnType<typeof createVisitScrollState>;
@@ -306,7 +315,9 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     // Stops a running position restore; follow itself is re-armed below.
     viewportRef.current?.navigate({ releasesFollow: false });
     followStore.dispatch(visit, { type: "followEnd" });
-    visitScroll().showScrollDebouncer.cancel();
+    const scroll = visitScroll();
+    scroll.pendingMessageNavRowId = null;
+    scroll.showScrollDebouncer.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor(releaseChatTimelineAnchor);
     // The anchored end space must be gone before the scroll measures, or the
@@ -338,7 +349,52 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     if (grew && readCurrentFollow().mode === "following") scrollToEndStable();
   }, [composerTimelineInset, readCurrentFollow, scrollToEndStable]);
 
+  const navigateToAdjacentMessage = (direction: "previous" | "next"): boolean => {
+    const list = legendListRef.current;
+    const state = list?.getState?.();
+    const viewport = list?.getScrollableNode?.();
+    if (!list || !state || !viewport) return false;
+    const rows = state.data as ReadonlyArray<MessagesTimelineRow>;
+    if (deriveNavigableMessageRowIndices(rows).length === 0) return false;
+
+    const scroll = resolveTimelineContentScroll(state, viewport);
+    const atStart = viewport.scrollTop <= 1;
+    const atEnd = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1;
+    const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });
+    const currentVisitScroll = visitScroll();
+    const target = resolveAdjacentMessageNavigationTarget({
+      rows,
+      direction,
+      scroll,
+      atStart,
+      atEnd,
+      positionAtIndex: state.positionAtIndex,
+      visibleStart: visibleRange.start,
+      pendingRowId: currentVisitScroll.pendingMessageNavRowId,
+    });
+    if (target === null) {
+      return true;
+    }
+    if (target.kind === "end") {
+      currentVisitScroll.pendingMessageNavRowId = null;
+      scrollToEnd(true);
+      return true;
+    }
+    currentVisitScroll.pendingMessageNavRowId = target.rowId;
+    viewportRef.current?.navigate({ releasesFollow: true });
+    void list.scrollToIndex({
+      index: target.rowIndex,
+      animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      viewOffset: TIMELINE_MINIMAP_TARGET_OFFSET,
+    });
+    return true;
+  };
+  const navigateToAdjacentMessageStable = useStableCallback(navigateToAdjacentMessage);
+
   const handleNavigation = (navigation: TimelineNavigation) => {
+    if (navigation.source !== "command") {
+      visitScroll().pendingMessageNavRowId = null;
+    }
     const awayFromEnd = () => resolveTimelineIsAtEnd(legendListRef.current?.getState()) === false;
     const releases = navigationReleasesFollow(navigation, {
       contentScrollsUp: timelineRealContentOverflowsViewport,
@@ -525,7 +581,9 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   /** Arms the anchor for a message the user just sent, before its run exists. */
   const anchorNewTurn = (threadKey: string, messageId: MessageId) => {
     followStore.dispatch(visit, { type: "followEnd" });
-    visitScroll().showScrollDebouncer.cancel();
+    const scroll = visitScroll();
+    scroll.pendingMessageNavRowId = null;
+    scroll.showScrollDebouncer.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({ threadKey, messageId });
   };
@@ -537,6 +595,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,
     scrollToEnd,
+    navigateToAdjacentMessageStable,
     onTimelineAnchorReadyStable,
     onTimelineAnchorSizeChangedStable,
     onTimelineFooterGrowStable,

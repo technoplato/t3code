@@ -444,6 +444,138 @@ export function isTimelineMinimapTurnVisible(
   );
 }
 
+export function resolveTimelineContentScroll(
+  state: {
+    readonly startBuffered: number | null | undefined;
+    readonly scroll: number;
+    readonly elementAtIndex: (index: number) => HTMLElement | undefined;
+    readonly positionAtIndex: (index: number) => number | undefined;
+  },
+  viewport: HTMLElement | null | undefined,
+): number {
+  const firstBufferedIndex = state.startBuffered;
+  const firstBufferedRow =
+    firstBufferedIndex == null ? undefined : state.elementAtIndex(firstBufferedIndex);
+  const firstBufferedTop =
+    firstBufferedIndex == null ? undefined : state.positionAtIndex(firstBufferedIndex);
+  // Cached row positions exclude the header and pending scroll adjustments.
+  return firstBufferedRow && viewport && firstBufferedTop !== undefined
+    ? firstBufferedTop +
+        viewport.getBoundingClientRect().top -
+        firstBufferedRow.getBoundingClientRect().top
+    : state.scroll;
+}
+
+function isNavigableMessageTimelineRow(
+  row: MessagesTimelineRow | undefined,
+): row is Extract<MessagesTimelineRow, { kind: "message" }> {
+  if (row?.kind !== "message" || row.message.role === "system") {
+    return false;
+  }
+  if (
+    row.message.role === "assistant" &&
+    !row.message.streaming &&
+    row.suppressEmptyResponse === true &&
+    row.message.text.trim().length === 0
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function deriveNavigableMessageRowIndices(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+): number[] {
+  const indices: number[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    if (isNavigableMessageTimelineRow(rows[index])) {
+      indices.push(index);
+    }
+  }
+  return indices;
+}
+
+export type AdjacentMessageNavigationTarget =
+  | { readonly kind: "row"; readonly rowIndex: number; readonly rowId: string }
+  | { readonly kind: "end" };
+
+const MESSAGE_NAVIGATION_SCROLL_TOLERANCE_PX = 4;
+
+export function resolveAdjacentMessageNavigationTarget(input: {
+  readonly rows: ReadonlyArray<MessagesTimelineRow>;
+  readonly direction: "previous" | "next";
+  readonly scroll: number;
+  readonly atStart: boolean;
+  readonly atEnd: boolean;
+  readonly positionAtIndex: (index: number) => number | undefined;
+  readonly visibleStart?: number | null | undefined;
+  readonly pendingRowId?: string | null | undefined;
+  readonly targetOffset?: number;
+  readonly tolerance?: number;
+}): AdjacentMessageNavigationTarget | null {
+  const messageIndices = deriveNavigableMessageRowIndices(input.rows);
+  if (messageIndices.length === 0) {
+    return null;
+  }
+
+  const rowTarget = (rowIndex: number): AdjacentMessageNavigationTarget => ({
+    kind: "row",
+    rowIndex,
+    rowId: input.rows[rowIndex]!.id,
+  });
+
+  if (input.pendingRowId != null) {
+    const pendingPos = messageIndices.findIndex(
+      (rowIndex) => input.rows[rowIndex]?.id === input.pendingRowId,
+    );
+    if (pendingPos >= 0) {
+      if (input.direction === "previous") {
+        return pendingPos > 0 ? rowTarget(messageIndices[pendingPos - 1]!) : null;
+      }
+      if (pendingPos + 1 < messageIndices.length) {
+        return rowTarget(messageIndices[pendingPos + 1]!);
+      }
+      return input.atEnd ? null : { kind: "end" };
+    }
+  }
+
+  const anchor = input.scroll + (input.targetOffset ?? TIMELINE_MINIMAP_TARGET_OFFSET);
+  const tolerance = input.tolerance ?? MESSAGE_NAVIGATION_SCROLL_TOLERANCE_PX;
+
+  if (input.direction === "previous") {
+    if (input.atStart) {
+      return null;
+    }
+    for (let index = messageIndices.length - 1; index >= 0; index -= 1) {
+      const rowIndex = messageIndices[index]!;
+      const top = input.positionAtIndex(rowIndex);
+      if (top != null && Number.isFinite(top)) {
+        if (top < anchor - tolerance) {
+          return rowTarget(rowIndex);
+        }
+      } else if (input.visibleStart != null && rowIndex < input.visibleStart) {
+        return rowTarget(rowIndex);
+      }
+    }
+    return null;
+  }
+
+  if (input.atEnd) {
+    return null;
+  }
+  for (const rowIndex of messageIndices) {
+    const top = input.positionAtIndex(rowIndex);
+    if (top != null && Number.isFinite(top)) {
+      if (top > anchor + tolerance) {
+        return rowTarget(rowIndex);
+      }
+    } else if (input.visibleStart != null && rowIndex > input.visibleStart) {
+      return rowTarget(rowIndex);
+    }
+  }
+  return { kind: "end" };
+}
+
 export function resolveTimelineMinimapCurrentIndex(input: {
   readonly visibleStart: number | null | undefined;
   readonly visibleEnd: number | null | undefined;
