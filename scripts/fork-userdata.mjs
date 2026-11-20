@@ -17,11 +17,13 @@ const SAFE_CONFIG_FILES = [
   "keybindings.json",
   "keybindings-migrations",
   "cli-command-first-launch",
+  "shell-environment-cache.json",
   "usage-model-rates.json",
   "model-manifest.json",
 ];
 
 const SAFE_DIRECTORIES = ["providers", "themes", "attachments"];
+const SAFE_HOME_DIRECTORIES = ["tools", "caches"];
 
 function run(command, args, options = {}) {
   const result = NodeChildProcess.spawnSync(command, args, {
@@ -171,6 +173,9 @@ for (const dir of SAFE_DIRECTORIES) {
     NodePath.join(sourceUserDataDir, dir),
     NodePath.join(destUserDataDir, dir),
   );
+}
+for (const dir of SAFE_HOME_DIRECTORIES) {
+  copyDirectoryIfPresent(NodePath.join(homeDir, ".t3", dir), NodePath.join(destHomeDir, dir));
 }
 
 // Ensure fresh identity/runtime state (never clone environment-id or relay-clients).

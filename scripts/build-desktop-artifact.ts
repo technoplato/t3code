@@ -3934,8 +3934,18 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     options.platform === "win"
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
       : undefined;
+  const packageNameOverride = yield* Config.String("T3CODE_DESKTOP_PACKAGE_NAME").pipe(
+    Config.option,
+  );
+  const resolvedStagePackageName = Option.getOrElse(
+    Option.filter(
+      Option.map(packageNameOverride, (value) => value.trim()),
+      (value) => value.length > 0,
+    ),
+    () => "t3code",
+  );
   const stagePackageJson: StagePackageJson = {
-    name: "t3code",
+    name: resolvedStagePackageName,
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,

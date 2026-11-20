@@ -21,6 +21,9 @@ const defaultHomeDirName = sharedHome
 const userDataDirName = sharedHome
   ? ""
   : process.env.T3CODE_DESKTOP_USER_DATA_DIR_NAME?.trim() || "t3code-custom";
+const stagePackageName = sharedHome
+  ? ""
+  : process.env.T3CODE_DESKTOP_PACKAGE_NAME?.trim() || "t3code-custom";
 
 function run(command, args, options = {}) {
   const result = NodeChildProcess.spawnSync(command, args, {
@@ -83,6 +86,7 @@ if (!skipBuild) {
         T3CODE_DESKTOP_APP_BASE_NAME: appBaseName,
         T3CODE_DESKTOP_DEFAULT_HOME_DIR_NAME: defaultHomeDirName,
         T3CODE_DESKTOP_USER_DATA_DIR_NAME: userDataDirName,
+        T3CODE_DESKTOP_PACKAGE_NAME: stagePackageName,
         T3CODE_DESKTOP_DISABLE_UPDATES: "true",
       },
     },
