@@ -29,6 +29,12 @@ function failure(
   };
 }
 
+function shouldActivateWindow(request: DesktopAppActivationRequest): boolean {
+  if (request.type === "open-workspace") return true;
+  if (request.focusWindow !== undefined) return request.focusWindow;
+  return request.command === "focus";
+}
+
 export class DesktopAppActivationBroker {
   readonly #pending = new Map<string, PendingActivation>();
   readonly #requestTimeoutMs: number;
@@ -71,7 +77,9 @@ export class DesktopAppActivationBroker {
       });
     });
 
-    this.#activate();
+    if (shouldActivateWindow(request)) {
+      this.#activate();
+    }
     this.#flush();
     return response;
   }

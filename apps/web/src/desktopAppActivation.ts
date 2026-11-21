@@ -1,7 +1,7 @@
 import type {
   DesktopAppActivationFailure,
-  DesktopAppActivationRequest,
   DesktopAppActivationResponse,
+  DesktopAppOpenWorkspaceRequest,
   EnvironmentId,
   ExecutionEnvironmentPlatformOs,
   ProjectId,
@@ -45,7 +45,7 @@ function failure(
 }
 
 function desktopPlatformToEnvironmentOs(
-  platform: DesktopAppActivationRequest["platform"],
+  platform: DesktopAppOpenWorkspaceRequest["platform"],
 ): ExecutionEnvironmentPlatformOs {
   return platform === "win32" ? "windows" : platform;
 }
@@ -55,7 +55,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export async function handleDesktopAppActivationRequest(
-  request: DesktopAppActivationRequest,
+  request: DesktopAppOpenWorkspaceRequest,
   dependencies: DesktopAppActivationDependencies,
 ): Promise<DesktopAppActivationResponse> {
   const target = dependencies.getTarget();

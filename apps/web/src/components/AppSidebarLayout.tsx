@@ -25,6 +25,7 @@ import {
   shortcutLabelForCommand,
 } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
+import { registerDesktopSidebarControl } from "../lib/desktopControlBridge";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
@@ -367,9 +368,11 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
     const unsubscribe = window.desktopBridge?.onMenuAction((action) => {
       if (action === "sidebar.toggle") toggleSidebar();
     });
+    const unregisterDesktopSidebarControl = registerDesktopSidebarControl({ toggleSidebar });
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       unsubscribe?.();
+      unregisterDesktopSidebarControl();
     };
   }, [keybindings, router, showSidebar, toggleSidebar, usagePageOpen]);
 

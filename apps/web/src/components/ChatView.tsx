@@ -59,6 +59,7 @@ import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
+import { registerDesktopChatControl } from "../lib/desktopControlBridge";
 import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
@@ -3051,6 +3052,101 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onWorktreeSetupWorkLocallyStable = useStableCallback(onWorktreeSetupWorkLocally);
   const onComposerSendStable = useStableCallback(onSend);
+  const desktopNavigateMessageStable = useStableCallback(
+    (direction: "previous" | "next" | "top" | "bottom", count: number = 1): boolean => {
+      if (direction === "bottom") {
+        scrollToEnd(true);
+        return true;
+      }
+      if (direction === "top") {
+        const viewport = legendListRef.current?.getScrollableNode?.();
+        if (!viewport) return false;
+        viewport.scrollTo({
+          top: 0,
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
+        return true;
+      }
+      const steps = Math.max(1, Math.min(20, Math.floor(count)));
+      let moved = false;
+      for (let step = 0; step < steps; step += 1) {
+        if (navigateToAdjacentMessageStable(direction)) {
+          moved = true;
+        }
+      }
+      return moved;
+    },
+  );
+  const desktopScrollTimelineStable = useStableCallback(
+    (direction: "up" | "down" | "top" | "bottom", amount: number = 0.75): boolean => {
+      if (direction === "bottom") {
+        scrollToEnd(true);
+        return true;
+      }
+      const viewport = legendListRef.current?.getScrollableNode?.();
+      if (!viewport) return false;
+      const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth";
+      if (direction === "top") {
+        viewport.scrollTo({ top: 0, behavior });
+        return true;
+      }
+      const delta = Math.max(120, Math.round(viewport.clientHeight * amount));
+      viewport.scrollBy({ top: direction === "down" ? delta : -delta, behavior });
+      return true;
+    },
+  );
+  const desktopSendMessageStable = useStableCallback(
+    async (text: string, mode: "auto" | "steer" = "auto"): Promise<boolean> => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return false;
+      promptRef.current = trimmed;
+      setComposerDraftPrompt(composerDraftTarget, trimmed);
+      await onComposerSendStable(undefined, mode, "foreground");
+      return true;
+    },
+  );
+  const desktopInterruptStable = useStableCallback(async (): Promise<boolean> => {
+    if (!canInterruptRunningThread) return false;
+    await onInterruptStable();
+    return true;
+  });
+  const desktopGetActiveThreadRefStable = useStableCallback(() => activeThreadRef);
+  const desktopToggleRightPanelStable = useStableCallback(() => {
+    toggleRightPanelStable();
+    return true;
+  });
+  const desktopToggleTerminalStable = useStableCallback(() => {
+    toggleTerminalVisibilityStable();
+    return true;
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the active ChatView imperative controls with the desktop control socket bridge
+  useEffect(() => {
+    if (embedded || backgroundThread) return;
+    return registerDesktopChatControl({
+      getActiveThreadRef: desktopGetActiveThreadRefStable,
+      navigateMessage: desktopNavigateMessageStable,
+      scrollTimeline: desktopScrollTimelineStable,
+      sendMessage: desktopSendMessageStable,
+      interrupt: desktopInterruptStable,
+      toggleRightPanel: desktopToggleRightPanelStable,
+      toggleTerminal: desktopToggleTerminalStable,
+    });
+  }, [
+    embedded,
+    backgroundThread,
+    desktopGetActiveThreadRefStable,
+    desktopNavigateMessageStable,
+    desktopScrollTimelineStable,
+    desktopSendMessageStable,
+    desktopInterruptStable,
+    desktopToggleRightPanelStable,
+    desktopToggleTerminalStable,
+  ]);
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,

@@ -1,17 +1,22 @@
 import type { DesktopAppActivationRequest } from "@t3tools/contracts";
 import { useEffect, useEffectEvent, useRef } from "react";
 
+import { useDesktopControlHandler } from "../../hooks/useDesktopControlHandler";
 import { useOpenLocalWorkspace } from "../../hooks/useOpenLocalWorkspace";
 
 export function DesktopAppActivationCoordinator() {
   const openLocalWorkspace = useOpenLocalWorkspace();
+  const desktopControl = useDesktopControlHandler();
   const queueRef = useRef(Promise.resolve());
   const activation = window.desktopBridge?.appActivation;
   const ready = activation !== undefined && openLocalWorkspace.ready;
 
-  const processRequest = useEffectEvent(async (request: DesktopAppActivationRequest) =>
-    openLocalWorkspace.open(request),
-  );
+  const processRequest = useEffectEvent(async (request: DesktopAppActivationRequest) => {
+    if (request.type === "control") {
+      return desktopControl.handle(request);
+    }
+    return openLocalWorkspace.open(request);
+  });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to desktop activation requests over the bridge and marks the renderer ready
   useEffect(() => {

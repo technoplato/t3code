@@ -74,4 +74,65 @@ describe("DesktopAppActivationBroker", () => {
     expect(send).toHaveBeenCalledTimes(1);
     broker.close();
   });
+
+  it("only focuses the window for control requests when requested or when command is focus", async () => {
+    const activate = vi.fn();
+    const send = vi.fn();
+    const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate });
+    broker.registerRenderer(send);
+
+    const statusReq: DesktopAppActivationRequest = {
+      version: 1,
+      requestId: "control-status",
+      type: "control",
+      command: "status",
+    };
+    const statusRes = broker.request(statusReq);
+    expect(activate).not.toHaveBeenCalled();
+    broker.complete({
+      version: 1,
+      requestId: "control-status",
+      ok: true,
+      command: "status",
+      summary: "ok",
+    });
+    await expect(statusRes).resolves.toMatchObject({ ok: true, command: "status" });
+
+    const focusReq: DesktopAppActivationRequest = {
+      version: 1,
+      requestId: "control-focus",
+      type: "control",
+      command: "focus",
+    };
+    const focusRes = broker.request(focusReq);
+    expect(activate).toHaveBeenCalledTimes(1);
+    broker.complete({
+      version: 1,
+      requestId: "control-focus",
+      ok: true,
+      command: "focus",
+      summary: "Focused",
+    });
+    await expect(focusRes).resolves.toMatchObject({ ok: true, command: "focus" });
+
+    const navFocusReq: DesktopAppActivationRequest = {
+      version: 1,
+      requestId: "control-open",
+      type: "control",
+      command: "open-thread",
+      args: { query: "test" },
+      focusWindow: true,
+    };
+    const navFocusRes = broker.request(navFocusReq);
+    expect(activate).toHaveBeenCalledTimes(2);
+    broker.complete({
+      version: 1,
+      requestId: "control-open",
+      ok: true,
+      command: "open-thread",
+      summary: "Opened",
+    });
+    await expect(navFocusRes).resolves.toMatchObject({ ok: true, command: "open-thread" });
+    broker.close();
+  });
 });
