@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
@@ -11,22 +12,57 @@ const DEFAULT_CUSTOM_STATE_DIR = NodePath.join(NodeOS.homedir(), ".t3-custom", "
 const OFFICIAL_STATE_DIR = NodePath.join(NodeOS.homedir(), ".t3", "userdata");
 const REQUEST_TIMEOUT_MS = 15_000;
 
-function resolveControlSocketPath(stateDir) {
+function socketPathForTempDir(tempDir, stateHash, uid, maxPathBytes) {
+  const socketName = `${stateHash}.sock`;
+  let directory = NodePath.join(tempDir, `t3code-${uid}`);
+  if (Buffer.byteLength(NodePath.join(directory, socketName), "utf8") > maxPathBytes) {
+    directory = NodePath.join("/tmp", `t3code-${uid}`);
+  }
+  return NodePath.join(directory, socketName);
+}
+
+function resolveCandidateSocketPaths(stateDir) {
   const resolved = NodePath.resolve(stateDir);
   const stateHash = NodeCrypto.createHash("sha256").update(resolved).digest("hex").slice(0, 24);
   // oxlint-disable-next-line t3code/no-global-process-runtime -- standalone zero-dependency Node CLI script outside Effect
   const hostPlatform = NodeOS.platform();
   if (hostPlatform === "win32") {
-    return `\\\\.\\pipe\\t3code-app-${stateHash}`;
+    return [`\\\\.\\pipe\\t3code-app-${stateHash}`];
   }
   const uid = typeof process.getuid === "function" ? process.getuid() : stateHash.slice(0, 12);
-  const socketName = `${stateHash}.sock`;
   const maxPathBytes = hostPlatform === "linux" ? 107 : 103;
-  let directory = NodePath.join(NodeOS.tmpdir(), `t3code-${uid}`);
-  if (Buffer.byteLength(NodePath.join(directory, socketName), "utf8") > maxPathBytes) {
-    directory = NodePath.join("/tmp", `t3code-${uid}`);
+  const candidates = new Set();
+
+  // Prefer macOS LaunchServices DARWIN_USER_TEMP_DIR (which GUI apps use even when a shell overrides TMPDIR).
+  if (hostPlatform === "darwin") {
+    try {
+      const darwinTmp = NodeChildProcess.execFileSync(
+        "/usr/bin/getconf",
+        ["DARWIN_USER_TEMP_DIR"],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      ).trim();
+      if (darwinTmp.length > 0) {
+        candidates.add(socketPathForTempDir(darwinTmp, stateHash, uid, maxPathBytes));
+      }
+    } catch {
+      // ignore
+    }
   }
-  return NodePath.join(directory, socketName);
+
+  candidates.add(socketPathForTempDir(NodeOS.tmpdir(), stateHash, uid, maxPathBytes));
+  candidates.add(NodePath.join("/tmp", `t3code-${uid}`, `${stateHash}.sock`));
+  return [...candidates];
+}
+
+function resolveControlSocketPath(stateDir) {
+  const candidates = resolveCandidateSocketPaths(stateDir);
+  for (const candidate of candidates) {
+    if (NodeFS.existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
 }
 
 export function sendControlRequest(command, args = {}, options = {}) {
