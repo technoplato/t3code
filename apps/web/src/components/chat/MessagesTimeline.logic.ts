@@ -697,7 +697,7 @@ export interface StableMessagesTimelineRowsState {
   result: MessagesTimelineRow[];
 }
 
-function workGroupId(timelineEntryId: string): string {
+export function workGroupId(timelineEntryId: string): string {
   return `work-group:${timelineEntryId}`;
 }
 
@@ -1603,6 +1603,7 @@ export function deriveMessagesTimelineRows(
     expandedAttemptIds?: ReadonlySet<RunAttemptId>;
     expandedWorkGroupIds?: ReadonlySet<string>;
     collapsedWorkGroupIds?: ReadonlySet<string>;
+    expandedWorkEntryIds?: ReadonlySet<string>;
     isWorking: boolean;
     /** Native subagent work has no app run; runless entries form the live response. */
     runlessWorkActive?: boolean;
@@ -1687,6 +1688,16 @@ export function deriveMessagesTimelineRows(
   const isTurnFoldExpanded = (fold: TurnFold): boolean => {
     if (input.expandedRunIds?.has(fold.runId)) return true;
     if (input.collapsedRunIds?.has(fold.runId)) return false;
+    if (input.expandedWorkGroupIds?.size || input.expandedWorkEntryIds?.size) {
+      for (const entryId of fold.hiddenEntryIds) {
+        if (
+          input.expandedWorkGroupIds?.has(workGroupId(entryId)) ||
+          input.expandedWorkEntryIds?.has(entryId)
+        ) {
+          return true;
+        }
+      }
+    }
     if (input.expandToolCallsByDefault === true) return true;
     if (input.expandThinkingByDefault !== true) return false;
     for (const entryId of fold.hiddenEntryIds) {
@@ -2583,6 +2594,7 @@ function replaceStreamingMessageRows(
     expandedAttemptIds: previousExpandedAttempts,
     expandedWorkGroupIds: previousExpandedGroups,
     collapsedWorkGroupIds: previousCollapsedGroups,
+    expandedWorkEntryIds: previousExpandedWorkEntries,
     pendingApprovalRequestIds: previousPendingApprovalRequestIds,
     availableRevertTurnCounts: previousAvailableRevertTurnCounts,
     ...previousContext
@@ -2596,6 +2608,7 @@ function replaceStreamingMessageRows(
     expandedAttemptIds,
     expandedWorkGroupIds,
     collapsedWorkGroupIds,
+    expandedWorkEntryIds,
     pendingApprovalRequestIds,
     availableRevertTurnCounts,
     ...context
@@ -2610,6 +2623,7 @@ function replaceStreamingMessageRows(
     !shallow(previousExpandedAttempts, expandedAttemptIds) ||
     !shallow(previousExpandedGroups, expandedWorkGroupIds) ||
     !shallow(previousCollapsedGroups, collapsedWorkGroupIds) ||
+    !shallow(previousExpandedWorkEntries, expandedWorkEntryIds) ||
     !shallow(previousPendingApprovalRequestIds, pendingApprovalRequestIds) ||
     !shallow(previousAvailableRevertTurnCounts, availableRevertTurnCounts) ||
     !sameCheckpointSummaries(previousCheckpoints, turnDiffSummaries)

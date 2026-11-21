@@ -203,11 +203,22 @@ function ExpandedWorkGroupEntries({
 }) {
   const {
     workGroupViewState: viewState,
+    expandedWorkGroupIds,
     expandThinkingByDefault,
     workLogScrollHeight,
     onToggleWorkEntry,
     onWorkEntryContentReady,
   } = use(TimelineRowCtx);
+  const groupId = anchorKey.endsWith(":details")
+    ? anchorKey.slice(0, -":details".length)
+    : anchorKey;
+  const leadingReasoningEntryIds = new Set<string>();
+  if (expandedWorkGroupIds.has(groupId)) {
+    for (const entry of entries) {
+      if (entry.itemType !== "reasoning") break;
+      if ((entry.detail?.trim() ?? "") !== "") leadingReasoningEntryIds.add(entry.id);
+    }
+  }
   const customHeightPx = useCustomWorkLogScrollHeightPx();
   const baseMaxHeightCss = resolveWorkGroupBaseMaxHeightCss(workLogScrollHeight, customHeightPx);
   const isFullHeight = baseMaxHeightCss === undefined;
@@ -235,6 +246,7 @@ function ExpandedWorkGroupEntries({
   const groupView = {
     state: viewState,
     viewedImages,
+    leadingReasoningEntryIds,
     onToggleEntry: (collapsed: boolean, entryId: string) =>
       onToggleWorkEntry(disclosureAnchorKey, collapsed, entryId),
     onContentReady: (entryId: string) => onWorkEntryContentReady?.(disclosureAnchorKey, entryId),
@@ -303,7 +315,7 @@ function ExpandedWorkGroupEntries({
     for (const entry of entries) {
       const entryExpanded =
         viewState.expandedEntries.has(entry.id) ||
-        (expandThinkingByDefault &&
+        ((expandThinkingByDefault || leadingReasoningEntryIds.has(entry.id)) &&
           entry.itemType === "reasoning" &&
           !viewState.collapsedEntries.has(entry.id));
       if (!entryExpanded) continue;

@@ -253,6 +253,7 @@ import { type ThreadWorkGroupScrollPosition } from "./thread-feed-scroll-positio
 import {
   collapsedWorkLogHeight,
   isWorkRowExpanded,
+  resolveLeadingReasoningRowIds,
   ThreadDisclosureChevron,
   THREAD_DISCLOSURE_TRANSITION_MS,
   ThreadWorkGroupToggle,
@@ -1985,6 +1986,7 @@ function renderFeedEntry(
     readonly pendingFoldMessageId: string | null;
     readonly formatMessageTime: (input: string) => string;
     readonly copiedRowId: string | null;
+    readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly expandThinkingByDefault: boolean;
     readonly workLogScrollHeight: WorkLogScrollHeight;
@@ -2732,6 +2734,10 @@ function renderFeedEntry(
     );
   }
 
+  const groupExpandedByUser =
+    entry.id.startsWith("work-details:") &&
+    props.expandedWorkGroups[entry.id.slice("work-details:".length)] === true;
+
   return (
     <ThreadWorkLog
       activities={entry.activities}
@@ -2741,6 +2747,7 @@ function renderFeedEntry(
       anchorKey={entry.id}
       copiedRowId={props.copiedRowId}
       expandedRows={props.expandedWorkRows}
+      groupExpandedByUser={groupExpandedByUser}
       expandThinkingByDefault={props.expandThinkingByDefault}
       workLogScrollHeight={props.workLogScrollHeight}
       rowSizing={props.workRowSizing}
@@ -3012,6 +3019,7 @@ function useThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<RunId>,
   collapsedTurnIds: ReadonlySet<RunId>,
   expandedWorkGroups: Record<string, boolean>,
+  expandedWorkRows: Record<string, boolean>,
   revealedMessageId: MessageId | null,
 ) {
   const [feedCache] = useState(createThreadFeedCache);
@@ -3022,6 +3030,10 @@ function useThreadFeedPresentation(
   for (const [groupId, expanded] of Object.entries(expandedWorkGroups)) {
     if (expanded) expandedWorkGroupIds.add(groupId);
     else collapsedWorkGroupIds.add(groupId);
+  }
+  const expandedWorkRowIds = new Set<string>();
+  for (const [rowId, expanded] of Object.entries(expandedWorkRows)) {
+    if (expanded) expandedWorkRowIds.add(rowId);
   }
   return appendPendingThreadMessages(
     deriveThreadFeedPresentation(
@@ -3039,6 +3051,7 @@ function useThreadFeedPresentation(
         expandToolCallsByDefault: props.expandToolCallsByDefault ?? false,
         collapsedRunIds: collapsedTurnIds,
         collapsedWorkGroupIds,
+        expandedWorkRowIds,
       },
       messages,
       locale,
@@ -3910,6 +3923,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         expandedTurnIds,
         collapsedTurnIds,
         expandedWorkGroups,
+        expandedWorkRows,
         revealedMessageId,
       ),
       { zen: props.toolCallVisibility === "zen" },
@@ -4009,22 +4023,29 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     return new Set(terminalIdsByTurn.values());
   })();
-  // An interrupted run unfolds; a run that is no longer latest folds back.
+  // An interrupted run unfolds; a newer run folds it back unless the user opened it themselves.
   const [previousLatestRun, setPreviousLatestRun] = useState(props.latestRun);
+  const [interruptedAutoExpandedRunId, setInterruptedAutoExpandedRunId] = useState<RunId | null>(
+    null,
+  );
   if (previousLatestRun !== props.latestRun) {
     setPreviousLatestRun(props.latestRun);
     const latest = props.latestRun;
     const previous = previousLatestRun;
     if (latest && previous) {
       if (latest.runId !== previous.runId) {
-        if (expandedTurnIds.has(previous.runId)) {
-          setInteractionState((current) => {
-            const next = new Set(current.expandedTurnIds);
-            next.delete(previous.runId);
-            return { ...current, expandedTurnIds: next };
-          });
+        if (previous.runId === interruptedAutoExpandedRunId) {
+          setInterruptedAutoExpandedRunId(null);
+          if (expandedTurnIds.has(previous.runId)) {
+            setInteractionState((current) => {
+              const next = new Set(current.expandedTurnIds);
+              next.delete(previous.runId);
+              return { ...current, expandedTurnIds: next };
+            });
+          }
         }
       } else if (previous.status === "running" && latest.status === "interrupted") {
+        setInterruptedAutoExpandedRunId(latest.runId);
         setInteractionState((current) => {
           const nextCollapsed = new Set(current.collapsedTurnIds);
           nextCollapsed.delete(latest.runId);
@@ -4241,10 +4262,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         ) {
           return undefined;
         }
+        const leadingReasoningIds = resolveLeadingReasoningRowIds(
+          entry.activities,
+          entry.id.startsWith("work-details:") &&
+            expandedWorkGroups[entry.id.slice("work-details:".length)] === true,
+        );
         return entry.activities.some(
           (activity) =>
             activity.prominent ||
-            isWorkRowExpanded(activity, expandedWorkRows, props.expandThinkingByDefault ?? false),
+            isWorkRowExpanded(
+              activity,
+              expandedWorkRows,
+              props.expandThinkingByDefault ?? false,
+              leadingReasoningIds,
+            ),
         )
           ? undefined
           : collapsedWorkLogHeight(
@@ -4352,6 +4383,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onCiteAssistantText: props.onCiteAssistantText,
             threadId: props.threadId,
             copiedRowId,
+            expandedWorkGroups,
             expandedWorkRows,
             expandThinkingByDefault,
             workLogScrollHeight,

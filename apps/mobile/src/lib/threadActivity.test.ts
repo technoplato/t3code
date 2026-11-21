@@ -2408,4 +2408,26 @@ it("expands thinking and tool call folds/groups by default and honors collapse o
   const toolToggles = toolsExpanded.filter((row) => row.type === "work-toggle");
   expect(toolToggles.length).toBe(2);
   expect(toolToggles.every((row) => row.expanded)).toBe(true);
+
+  // Keeping an open thinking group keeps its settled run fold open when the turn finishes.
+  const thoughtGroupId = thoughtToggle?.type === "work-toggle" ? thoughtToggle.groupId : "";
+  const keptOpenFold = deriveThreadFeedPresentation(
+    feed,
+    latestRun,
+    new Set(),
+    new Set([thoughtGroupId]),
+    null,
+    false,
+    cache,
+    {
+      toolCallVisibility: "showAll",
+      revealedMessageId: null,
+    },
+  );
+  expect(
+    keptOpenFold.find((row) => row.type === "run-fold" && row.runId === thoughtRunId),
+  ).toMatchObject({ expanded: true });
+  expect(
+    keptOpenFold.find((row) => row.type === "work-toggle" && row.groupId === thoughtGroupId),
+  ).toMatchObject({ expanded: true });
 });
