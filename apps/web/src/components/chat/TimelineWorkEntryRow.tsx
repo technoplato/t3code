@@ -193,13 +193,22 @@ const toolCallExpandedBodyBaseClassName =
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
-export function ReasoningTraceContent({ entries }: { entries: ReadonlyArray<TimelineWorkEntry> }) {
+export function ReasoningTraceContent({
+  entries,
+  nestedInScrollGroup = false,
+}: {
+  entries: ReadonlyArray<TimelineWorkEntry>;
+  nestedInScrollGroup?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
   const { isWorking, latestRunId } = use(TimelineRowActivityCtx);
   const isStreaming = (entry: TimelineWorkEntry) =>
     isWorking && entry.runId === latestRunId && entry.toolLifecycleStatus === "inProgress";
   return (
-    <WorkLogDetails followLive={entries.some(isStreaming)} scrollHeight={ctx.workLogScrollHeight}>
+    <WorkLogDetails
+      followLive={entries.some(isStreaming)}
+      scrollHeight={nestedInScrollGroup ? "full" : ctx.workLogScrollHeight}
+    >
       {entries.map((entry) => (
         <ChatMarkdown
           key={entry.id}
@@ -671,7 +680,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       {expanded && workEntry.questionAnswer ? (
         <QuestionAnswerHistory answer={workEntry.questionAnswer} />
       ) : null}
-      {expanded && isReasoning ? <ReasoningTraceContent entries={[workEntry]} /> : null}
+      {expanded && isReasoning ? (
+        <ReasoningTraceContent entries={[workEntry]} nestedInScrollGroup={groupView !== null} />
+      ) : null}
       {expanded &&
       !isReasoning &&
       !workEntry.questionAnswer &&
