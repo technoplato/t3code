@@ -104,6 +104,7 @@ export interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  expandedWorkGroupIds: ReadonlySet<string>;
   expandThinkingByDefault: boolean;
   workLogScrollHeight: WorkLogScrollHeight;
 }
@@ -139,6 +140,7 @@ export interface WorkGroupViewedImage {
 export const WorkGroupViewCtx = createContext<{
   state: WorkGroupViewState;
   viewedImages: ReadonlyArray<WorkGroupViewedImage>;
+  leadingReasoningEntryIds: ReadonlySet<string>;
   onToggleEntry: (collapsed: boolean, entryId: string) => void;
   onContentReady?: ((entryId: string) => void) | undefined;
 } | null>(null);

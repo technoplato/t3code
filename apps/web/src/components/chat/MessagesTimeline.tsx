@@ -447,6 +447,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [collapsedWorkGroupIds, setCollapsedWorkGroupIds] = useState<ReadonlySet<string>>(
     () => listState.rememberedPosition?.disclosures?.collapsedWorkGroups ?? new Set(),
   );
+  const [expandedWorkEntryIds, setExpandedWorkEntryIds] = useState<ReadonlySet<string>>(
+    () => new Set(listState.workGroupViewState.expandedEntries),
+  );
+  const [interruptedAutoExpandedRunId, setInterruptedAutoExpandedRunId] = useState<RunId | null>(
+    null,
+  );
   const [expandedAttemptIds, setExpandedAttemptIds] = useState<ReadonlySet<RunAttemptId>>(
     () => listState.rememberedPosition?.disclosures?.attempts ?? new Set(),
   );
@@ -466,6 +472,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   let paintedCollapsedRunIds = collapsedRunIds;
   let paintedExpandedWorkGroupIds = expandedWorkGroupIds;
   let paintedCollapsedWorkGroupIds = collapsedWorkGroupIds;
+  let paintedExpandedWorkEntryIds = expandedWorkEntryIds;
   let paintedExpandedAttemptIds = expandedAttemptIds;
   const identityChanged = listState.identity !== listIdentityKey;
   const { rememberedPosition, workGroupViewState } = identityChanged
@@ -489,11 +496,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
     paintedExpandedWorkGroupIds = rememberedPosition?.disclosures?.workGroups ?? new Set();
     paintedCollapsedWorkGroupIds =
       rememberedPosition?.disclosures?.collapsedWorkGroups ?? new Set();
+    paintedExpandedWorkEntryIds = new Set(workGroupViewState.expandedEntries);
     paintedExpandedAttemptIds = rememberedPosition?.disclosures?.attempts ?? new Set();
     setExpandedRunIds(paintedExpandedRunIds);
     setCollapsedRunIds(paintedCollapsedRunIds);
     setExpandedWorkGroupIds(paintedExpandedWorkGroupIds);
     setCollapsedWorkGroupIds(paintedCollapsedWorkGroupIds);
+    setExpandedWorkEntryIds(paintedExpandedWorkEntryIds);
+    setInterruptedAutoExpandedRunId(null);
     setExpandedAttemptIds(paintedExpandedAttemptIds);
   }
   const citationThreadRef = parseScopedThreadKey(routeThreadKey);
@@ -629,7 +639,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     });
   };
 
-  // An interrupted run opens its fold; a newer run closes the previous run's.
+  // An interrupted run opens its fold; a newer run closes it unless the user opened it themselves.
   const [observedLatestRun, setObservedLatestRun] = useState({
     identity: listIdentityKey,
     runId: latestRun?.runId,
@@ -653,6 +663,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     ) {
       if (latestRun.runId === previousRunId) {
         if (observedLatestRun.status === "running" && latestRun.status === "interrupted") {
+          setInterruptedAutoExpandedRunId(latestRun.runId);
           setExpandedRunIds((existing) => new Set(existing).add(latestRun.runId));
           setCollapsedRunIds((existing) => {
             if (!existing.has(latestRun.runId)) return existing;
@@ -661,7 +672,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
             return next;
           });
         }
-      } else {
+      } else if (previousRunId === interruptedAutoExpandedRunId) {
+        setInterruptedAutoExpandedRunId(null);
         setExpandedRunIds((existing) => {
           if (!existing.has(previousRunId)) return existing;
           const next = new Set(existing);
@@ -810,6 +822,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     expandedAttemptIds: visibleExpandedAttemptIds,
     expandedWorkGroupIds: paintedExpandedWorkGroupIds,
     collapsedWorkGroupIds: paintedCollapsedWorkGroupIds,
+    expandedWorkEntryIds: paintedExpandedWorkEntryIds,
     isWorking,
     runlessWorkActive,
     activeTurnStartedAt,
@@ -1194,8 +1207,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onToggleTurnFold,
     onToggleAttemptFold,
     onToggleWorkGroup,
-    onToggleWorkEntry: (anchorKey, collapsed, entryId) =>
-      preserveDisclosurePosition(anchorKey, collapsed ? undefined : { entryId }),
+    onToggleWorkEntry: (anchorKey, collapsed, entryId) => {
+      preserveDisclosurePosition(anchorKey, collapsed ? undefined : { entryId });
+      if (entryId !== undefined) {
+        setExpandedWorkEntryIds((existing) => {
+          if (collapsed ? !existing.has(entryId) : existing.has(entryId)) return existing;
+          const next = new Set(existing);
+          if (collapsed) next.delete(entryId);
+          else next.add(entryId);
+          return next;
+        });
+      }
+    },
     onWorkEntryContentReady: (anchorKey, entryId) => {
       const pending = disclosureRevealRef.current;
       if (
@@ -1215,6 +1238,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    expandedWorkGroupIds: paintedExpandedWorkGroupIds,
     expandThinkingByDefault,
     workLogScrollHeight,
   };

@@ -1,5 +1,6 @@
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogDetails, WorkLogRow } from "./WorkLog";
+import { workGroupId } from "./MessagesTimeline.logic";
 import { resolveToolOutputMaxHeightClassName } from "./workLogScrollHeight";
 import {
   getQuestionAnswerPreview,
@@ -296,13 +297,17 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       ? notificationChildThreadId(workEntry.projectedItem.item.source)
       : undefined;
   const groupView = use(WorkGroupViewCtx);
+  const viewState = groupView?.state ?? ctx.workGroupViewState;
   const isReasoning = workEntry.itemType === "reasoning";
-  const defaultExpanded =
-    isReasoning && ctx.expandThinkingByDefault && (workEntry.detail?.trim() ?? "") !== "";
+  const hasReasoningDetail = isReasoning && (workEntry.detail?.trim() ?? "") !== "";
+  const keptOpenFromGroup =
+    hasReasoningDetail &&
+    (ctx.expandedWorkGroupIds.has(workGroupId(workEntry.id)) ||
+      groupView?.leadingReasoningEntryIds.has(workEntry.id) === true);
+  const defaultExpanded = hasReasoningDetail && (ctx.expandThinkingByDefault || keptOpenFromGroup);
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(() => {
-    if (!groupView) return null;
-    if (groupView.state.expandedEntries.has(workEntry.id)) return true;
-    if (groupView.state.collapsedEntries.has(workEntry.id)) return false;
+    if (viewState.expandedEntries.has(workEntry.id)) return true;
+    if (viewState.collapsedEntries.has(workEntry.id)) return false;
     return null;
   });
   const expanded = expandedOverride ?? defaultExpanded;
@@ -312,15 +317,15 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   };
   const toggleExpanded = () => {
     const next = !expanded;
+    if (next) {
+      viewState.expandedEntries.add(workEntry.id);
+      viewState.collapsedEntries.delete(workEntry.id);
+    } else {
+      viewState.expandedEntries.delete(workEntry.id);
+      viewState.collapsedEntries.add(workEntry.id);
+    }
     if (groupView) {
       groupView.onToggleEntry(!next, workEntry.id);
-      if (next) {
-        groupView.state.expandedEntries.add(workEntry.id);
-        groupView.state.collapsedEntries.delete(workEntry.id);
-      } else {
-        groupView.state.expandedEntries.delete(workEntry.id);
-        groupView.state.collapsedEntries.add(workEntry.id);
-      }
     } else {
       props.onToggleEntry?.(!next);
     }

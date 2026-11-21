@@ -438,15 +438,32 @@ const WORK_GROUP_EDGE_FADE_HEIGHT = 12;
 
 export const WORK_GROUP_TOGGLE_HEIGHT = THREAD_WORK_ROW_MIN_HEIGHT;
 
+export function resolveLeadingReasoningRowIds(
+  activities: ReadonlyArray<ThreadFeedActivity>,
+  groupExpandedByUser: boolean,
+): ReadonlySet<string> | undefined {
+  if (!groupExpandedByUser) return undefined;
+  let ids: Set<string> | undefined;
+  for (const row of activities) {
+    if (row.workEntry.itemType !== "reasoning") break;
+    if ((row.workEntry.detail?.trim() ?? "") !== "") {
+      ids ??= new Set();
+      ids.add(row.id);
+    }
+  }
+  return ids;
+}
+
 export function isWorkRowExpanded(
   row: ThreadFeedActivity,
   expandedRows: Readonly<Record<string, boolean>>,
   expandThinkingByDefault: boolean,
+  leadingReasoningRowIds?: ReadonlySet<string>,
 ): boolean {
   const explicit = expandedRows[row.id];
   if (explicit !== undefined) return explicit;
   return (
-    expandThinkingByDefault &&
+    (expandThinkingByDefault || leadingReasoningRowIds?.has(row.id) === true) &&
     row.workEntry.itemType === "reasoning" &&
     (row.workEntry.detail?.trim() ?? "") !== ""
   );
@@ -499,6 +516,7 @@ interface ThreadWorkLogProps {
   readonly workspaceRoot?: string | null | undefined;
   readonly copiedRowId: string | null;
   readonly expandedRows: Readonly<Record<string, boolean>>;
+  readonly groupExpandedByUser?: boolean | undefined;
   readonly expandThinkingByDefault?: boolean | undefined;
   readonly workLogScrollHeight?: WorkLogScrollHeight | undefined;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
@@ -523,13 +541,22 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
   const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
   const workLogScrollHeight = props.workLogScrollHeight ?? "default";
   const workGroupMaxHeight = resolveWorkGroupMaxHeight(workLogScrollHeight);
+  const leadingReasoningRowIds = resolveLeadingReasoningRowIds(
+    props.activities,
+    props.groupExpandedByUser === true,
+  );
   const renderRow = (row: ThreadFeedActivity) => (
     <ThreadWorkLogRow
       key={row.id}
       row={row}
       anchorKey={props.anchorKey}
       copied={props.copiedRowId === row.id}
-      expanded={isWorkRowExpanded(row, props.expandedRows, expandThinkingByDefault)}
+      expanded={isWorkRowExpanded(
+        row,
+        props.expandedRows,
+        expandThinkingByDefault,
+        leadingReasoningRowIds,
+      )}
       environmentId={props.environmentId}
       iconSubtleColor={props.iconSubtleColor}
       onCopyRow={props.onCopyRow}
@@ -585,6 +612,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
           edgeFadeColor={props.edgeFadeColor}
           expandedRows={props.expandedRows}
           expandThinkingByDefault={expandThinkingByDefault}
+          leadingReasoningRowIds={leadingReasoningRowIds}
           maxHeight={workGroupMaxHeight}
           groupId={props.anchorKey}
           rowSizing={props.rowSizing}
@@ -668,6 +696,7 @@ function ThreadWorkGroupList(props: {
   readonly edgeFadeColor: string;
   readonly expandedRows: Readonly<Record<string, boolean>>;
   readonly expandThinkingByDefault: boolean;
+  readonly leadingReasoningRowIds: ReadonlySet<string> | undefined;
   readonly maxHeight: number;
   readonly groupId: string;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
@@ -743,8 +772,12 @@ function ThreadWorkGroupList(props: {
     };
   }, [handleMetricsChange]);
   const getFixedItemSize = (row: ThreadFeedActivity, index: number) =>
-    isWorkRowExpanded(row, props.expandedRows, props.expandThinkingByDefault) ||
-    props.rowSizing.fixedRowHeight === undefined
+    isWorkRowExpanded(
+      row,
+      props.expandedRows,
+      props.expandThinkingByDefault,
+      props.leadingReasoningRowIds,
+    ) || props.rowSizing.fixedRowHeight === undefined
       ? undefined
       : props.rowSizing.fixedRowHeight + (index < props.activities.length - 1 ? WORK_ROW_GAP : 0);
   const renderItem = ({ item, index }: { item: ThreadFeedActivity; index: number }) => (

@@ -1552,6 +1552,7 @@ function presentationRestart(
       Boolean(display.expandToolCallsByDefault) ||
     !optionalSetsEqual(previous.display.collapsedRunIds, display.collapsedRunIds) ||
     !optionalSetsEqual(previous.display.collapsedWorkGroupIds, display.collapsedWorkGroupIds) ||
+    !optionalSetsEqual(previous.display.expandedWorkRowIds, display.expandedWorkRowIds) ||
     !setsEqual(previous.expandedRunIds, expandedRunIds) ||
     !setsEqual(previous.expandedWorkGroupIds, expandedWorkGroupIds)
   ) {
@@ -1704,6 +1705,7 @@ export interface ThreadFeedDisplay {
   readonly expandToolCallsByDefault?: boolean;
   readonly collapsedRunIds?: ReadonlySet<RunId>;
   readonly collapsedWorkGroupIds?: ReadonlySet<string>;
+  readonly expandedWorkRowIds?: ReadonlySet<string>;
 }
 
 const DEFAULT_THREAD_FEED_DISPLAY: ThreadFeedDisplay = {
@@ -1762,6 +1764,7 @@ export function deriveThreadFeedPresentation(
     expandToolCallsByDefault = false,
     collapsedRunIds,
     collapsedWorkGroupIds,
+    expandedWorkRowIds,
   } = display;
   const isWorking = activeWorkStartedAt !== null && latestRun?.status !== "preparing";
   const activeRunId = unsettledRunId(latestRun);
@@ -1838,6 +1841,21 @@ export function deriveThreadFeedPresentation(
   const isRunFoldExpanded = (fold: ThreadFeedRunFold): boolean => {
     if (expandedRunIds.has(fold.runId)) return true;
     if (collapsedRunIds?.has(fold.runId)) return false;
+    if (expandedWorkGroupIds.size > 0 || (expandedWorkRowIds?.size ?? 0) > 0) {
+      for (const entryId of fold.hiddenEntryIds) {
+        const entry = sourceEntryById.get(entryId);
+        if (
+          entry?.type === "activity-group" &&
+          entry.activities.some(
+            (activity) =>
+              expandedWorkGroupIds.has(`work-group:${activity.id}`) ||
+              expandedWorkRowIds?.has(activity.id) === true,
+          )
+        ) {
+          return true;
+        }
+      }
+    }
     if (expandToolCallsByDefault) return true;
     if (!expandThinkingByDefault) return false;
     for (const entryId of fold.hiddenEntryIds) {

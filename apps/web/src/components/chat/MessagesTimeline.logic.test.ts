@@ -5483,4 +5483,34 @@ describe("default expansion settings", () => {
       ),
     ).toMatchObject({ expanded: false });
   });
+
+  it("keeps a settled turn fold open when the user already expanded a thinking trace or work group inside it", () => {
+    const keptOpen = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandedWorkGroupIds: new Set(["work-group:r-1"]),
+    });
+    expect(
+      keptOpen.find((row) => row.kind === "turn-fold" && row.runId === runThought),
+    ).toMatchObject({ expanded: true });
+    expect(
+      keptOpen.find((row) => row.kind === "work-toggle" && row.groupId === "work-group:r-1"),
+    ).toMatchObject({ expanded: true });
+
+    const explicitlyCollapsed = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandedWorkGroupIds: new Set(["work-group:r-1"]),
+      collapsedRunIds: new Set([runThought]),
+    });
+    expect(
+      explicitlyCollapsed.find((row) => row.kind === "turn-fold" && row.runId === runThought),
+    ).toMatchObject({ expanded: false });
+  });
 });
