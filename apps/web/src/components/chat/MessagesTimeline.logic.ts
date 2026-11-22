@@ -519,8 +519,7 @@ export function resolveAdjacentMessageNavigationTarget(input: {
       rowIndex,
       rowId: rows[rowIndex]!.id,
     })),
-    pendingRowIndex:
-      pendingRowId == null ? null : rows.findIndex((row) => row.id === pendingRowId),
+    pendingRowIndex: pendingRowId == null ? null : rows.findIndex((row) => row.id === pendingRowId),
     targetOffset: TIMELINE_MINIMAP_TARGET_OFFSET,
   });
 }
