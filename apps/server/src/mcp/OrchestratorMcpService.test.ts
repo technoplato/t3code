@@ -590,7 +590,7 @@ describe("OrchestratorMcpService", () => {
           getThreadRecords: (threadId) =>
             Effect.succeed(threadId === parentThreadId ? parentProjection : childProjection),
           delegatedTaskResultPending: () => Effect.succeed(false),
-          dispatch: () => Effect.succeed({ sequence: 1 }),
+          dispatch: () => Effect.succeed({} as never),
           waitForThread: () =>
             Effect.succeed({ run: childProjection.runs[0]!, timedOut: false } as never),
           getThreadShell: (threadId) => Effect.succeed(liveThreadShell(threadId)),
@@ -626,8 +626,8 @@ describe("OrchestratorMcpService", () => {
         const quotaExhausted = {
           providerInstanceId: claudeInstanceId,
           model: "claude-fable-5-2",
-          window: "weekly",
-          modelScoped: true,
+          window: "weekly" as const,
+          modelScoped: true as const,
           resetsAt: "2026-11-25T08:00:00.000Z",
         };
         assert.deepEqual(status.quotaExhausted, quotaExhausted);

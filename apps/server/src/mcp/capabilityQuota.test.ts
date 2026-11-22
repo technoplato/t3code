@@ -1,4 +1,4 @@
-import type { ServerProvider, ServerProviderUsageWindow } from "@t3tools/contracts";
+import { ProviderDriverKind, type ServerProviderUsageWindow } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import { capabilityQuota } from "./capabilityQuota.ts";
@@ -48,7 +48,7 @@ function quotaOf(
 ) {
   return capabilityQuota({
     provider: {
-      driver: "claudeAgent",
+      driver: ProviderDriverKind.make("claudeAgent"),
       auth: {
         status: "authenticated",
         ...(overrides.endpoint === undefined ? {} : { endpoint: overrides.endpoint }),
@@ -64,7 +64,7 @@ function quotaOf(
               ...(overrides.zeroSpendCap ? { zeroSpendCap: true } : {}),
             },
           }),
-    } as Pick<ServerProvider, "driver" | "auth" | "models" | "usageLimits">,
+    },
     listedModels: overrides.listedModels ?? MODELS,
     now: NOW,
   });
