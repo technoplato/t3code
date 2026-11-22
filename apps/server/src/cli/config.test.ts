@@ -1079,4 +1079,39 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       });
     }),
   );
+
+  it.effect(
+    "reads exportClientView from settings.json and lets T3CODE_EXPORT_CLIENT_VIEW override it",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-cli-config-client-view-",
+        });
+        const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
+        yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+
+        const resolveExportFlag = (env: Record<string, string> = {}) =>
+          resolveServerConfig(minimalWebFlags(baseDir), Option.none()).pipe(
+            Effect.map((config) => config.exportClientView),
+            Effect.provide(
+              Layer.mergeAll(
+                ConfigProvider.layer(ConfigProvider.fromEnv({ env })),
+                NetService.layer,
+              ),
+            ),
+          );
+
+        expect(yield* resolveExportFlag()).toBeUndefined();
+        expect(yield* resolveExportFlag({ T3CODE_EXPORT_CLIENT_VIEW: "true" })).toBe(true);
+
+        yield* fs.writeFileString(
+          derivedPaths.settingsPath,
+          `${JSON.stringify({ exportClientView: true })}\n`,
+        );
+        expect(yield* resolveExportFlag()).toBe(true);
+        expect(yield* resolveExportFlag({ T3CODE_EXPORT_CLIENT_VIEW: "false" })).toBeUndefined();
+      }),
+  );
 });

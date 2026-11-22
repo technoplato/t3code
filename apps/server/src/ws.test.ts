@@ -80,6 +80,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as AntigravityInstallation from "./provider/AntigravityInstallation.ts";
 import * as ProviderInstallation from "./provider/providerInstallation.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
+import * as ClientViewExport from "./background/ClientViewExport.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as NativeChildWorkQuery from "./orchestration-v2/NativeChildWorkQuery.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
@@ -2642,4 +2643,217 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
       ),
     ),
   ),
+);
+
+const reportClientActivityRpcs = WsRpcGroup.omit(
+  ...[...WsRpcGroup.requests.keys()].filter(
+    (
+      tag,
+    ): tag is Exclude<
+      keyof typeof RpcAuthorization.RPC_REQUIRED_SCOPES,
+      typeof WS_METHODS.serverReportClientActivity
+    > => tag !== WS_METHODS.serverReportClientActivity,
+  ),
+);
+
+it.effect(
+  "server.reportClientActivity writes client-view.json via Ws RPC and clears it on exit",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfigModule.ServerConfig;
+      const envId = EnvironmentId.make("env-ws-client-view");
+      const threadId = ThreadId.make("thread-ws-client-view");
+      const messageId = MessageId.make("msg-ws-client-view");
+      const now = DateTime.makeUnsafe("2026-11-22T12:00:00.000Z");
+      const writtenStates = yield* Queue.unbounded<string>();
+
+      const exportConfigLayer = Layer.succeed(ServerConfigModule.ServerConfig, {
+        ...config,
+        exportClientView: true,
+      });
+      const realFileSinkLayer = ClientViewExport.layerFileSink.pipe(
+        Layer.provide(exportConfigLayer),
+        Layer.provide(NodeServices.layer),
+      );
+      const observedFileSinkLayer = Layer.effect(
+        ClientViewExport.ClientViewSink,
+        Effect.gen(function* () {
+          const realSink = yield* ClientViewExport.ClientViewSink;
+          return ClientViewExport.ClientViewSink.of({
+            write: (snapshot) =>
+              realSink
+                .write(snapshot)
+                .pipe(Effect.andThen(Queue.offer(writtenStates, snapshot.state)), Effect.asVoid),
+          });
+        }),
+      ).pipe(Layer.provide(realFileSinkLayer));
+      const clientViewLayer = ClientViewExport.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(
+              ClientViewExport.ClientViewSource,
+              ClientViewExport.ClientViewSource.of({
+                environmentId: Effect.succeed(envId),
+                readThread: (requestedThreadId, itemIds) =>
+                  Effect.succeed(
+                    requestedThreadId === threadId && itemIds.includes(messageId)
+                      ? {
+                          shell: {
+                            title: "WS Live View Thread",
+                            status: "idle",
+                            providerInstanceId: ProviderInstanceId.make("claude_ld"),
+                            modelSelection: {
+                              instanceId: ProviderInstanceId.make("claude_ld"),
+                              model: "claude-fable-5-2",
+                            },
+                            activityRunStartedAt: null,
+                            latestRunStartedAt: now,
+                            pendingRuntimeRequest: null,
+                          },
+                          project: { title: "T3 Code", workspaceRoot: "/workspace/t3code" },
+                          messages: new Map([
+                            [
+                              messageId,
+                              {
+                                role: "assistant",
+                                text: "Visible end-to-end reply.",
+                                streaming: false,
+                              },
+                            ],
+                          ]),
+                          turnItems: new Map(),
+                          pendingRequestItem: null,
+                        }
+                      : null,
+                  ),
+                threadChanges: Stream.never,
+                deviceName: () => Effect.succeed("Mac Studio"),
+              }),
+            ),
+            observedFileSinkLayer,
+            exportConfigLayer,
+          ),
+        ),
+        Layer.provide(NodeServices.layer),
+      );
+
+      const clientViewService = yield* Effect.flatMap(Layer.build(clientViewLayer), (context) =>
+        Effect.provide(ClientViewExport.ClientViewExport, context),
+      );
+      const services = Layer.mergeAll(
+        layerUnusedConfigRpcServices,
+        Layer.fresh(layerConfigSources),
+        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(ServerEnvironment.ServerEnvironment)({}),
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(ThreadManagement.ThreadManagementService)({}),
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+        Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+          reportClientActivity: () => Effect.void,
+          removeRpcClient: () => Effect.void,
+        }),
+        Layer.succeed(ClientViewExport.ClientViewExport, clientViewService),
+      );
+
+      const client = yield* RpcTest.makeClient(reportClientActivityRpcs).pipe(
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make("view-test"),
+              subject: "view-test",
+              method: "browser-session-cookie",
+              scopes: [],
+            },
+            {},
+            yield* ServerBrowser.ServerBrowser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer([AuthOrchestrationReadScope])),
+          ),
+        ),
+      );
+
+      const targetPath = path.join(config.stateDir, ClientViewExport.CLIENT_VIEW_FILE_NAME);
+      const awaitState = (expected: string) =>
+        Effect.gen(function* () {
+          while ((yield* Queue.take(writtenStates)) !== expected) {
+            // Drain any earlier startup state transition.
+          }
+          return JSON.parse(yield* fs.readFileString(targetPath)) as Record<string, unknown>;
+        });
+
+      // Wait for the initial empty snapshot, then advance past the 1s write interval.
+      yield* awaitState("none");
+      yield* TestClock.adjust("2 seconds");
+
+      yield* client[WS_METHODS.serverReportClientActivity]({
+        environmentId: envId,
+        clientId: "desktop-client",
+        clientKind: "desktop-renderer",
+        visible: true,
+        focused: true,
+        recentlyInteracted: true,
+        appState: "active",
+        scopes: [{ type: "provider-status" }],
+        ttlMs: 45_000,
+        observedAt: now,
+        view: {
+          windowId: "window-1",
+          seq: 1,
+          focused: true,
+          lastGestureAtMs: DateTime.toEpochMillis(now),
+          environmentId: envId,
+          threadId,
+          items: [{ id: messageId, kind: "assistant", from: 0, to: 1 }],
+        },
+      });
+
+      const active = yield* awaitState("active");
+      assert.equal(active.state, "active");
+      assert.equal(active.threadTitle, "WS Live View Thread");
+      assert.equal(active.agentLabel, "claude_ld claude-fable-5-2");
+      assert.equal(active.visibleText, "Visible end-to-end reply.");
+      assert.equal(active.focusedItemId, messageId);
+      assert.equal((yield* fs.stat(targetPath)).mode & 0o777, 0o600);
+
+      // Advance past the 1s throttle, then leave the thread to clear back to `none`.
+      yield* TestClock.adjust("2 seconds");
+      yield* client[WS_METHODS.serverReportClientActivity]({
+        environmentId: envId,
+        clientId: "desktop-client",
+        clientKind: "desktop-renderer",
+        visible: true,
+        focused: true,
+        recentlyInteracted: true,
+        appState: "active",
+        scopes: [{ type: "provider-status" }],
+        ttlMs: 45_000,
+        observedAt: now,
+      });
+
+      const cleared = yield* awaitState("none");
+      assert.equal(cleared.state, "none");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          ServerConfigModule.layerTest(process.cwd(), {
+            prefix: "t3-ws-client-view-test-",
+          }).pipe(Layer.provideMerge(NodeServices.layer)),
+          Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
+          Layer.mock(ServerBrowser.ServerBrowser)({}),
+        ),
+      ),
+    ),
 );

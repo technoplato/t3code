@@ -44,6 +44,12 @@ const ServerObservabilitySettingsJson = fromLenientJson(
 const decodeServerObservabilitySettingsJson = Schema.decodeUnknownOption(
   ServerObservabilitySettingsJson,
 );
+const ServerExportClientViewSettingsJson = fromLenientJson(
+  Schema.Struct({ exportClientView: Schema.optionalKey(Schema.Boolean) }),
+);
+const decodeServerExportClientViewSettingsJson = Schema.decodeUnknownOption(
+  ServerExportClientViewSettingsJson,
+);
 
 export function isModelSelectionProviderEnabled(
   settings: ServerSettings,
@@ -209,6 +215,11 @@ export function parsePersistedServerObservabilitySettings(
     return extractPersistedServerObservabilitySettings(decoded.value);
   }
   return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined, otlpLogsUrl: undefined };
+}
+
+export function parsePersistedServerExportClientView(raw: string): boolean | undefined {
+  const decoded = decodeServerExportClientViewSettingsJson(raw);
+  return Option.isSome(decoded) ? decoded.value.exportClientView : undefined;
 }
 
 function shouldReplaceTextGenerationModelSelection(

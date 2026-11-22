@@ -5,7 +5,10 @@ import {
   type SignalExport,
 } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
+import {
+  parsePersistedServerExportClientView,
+  parsePersistedServerObservabilitySettings,
+} from "@t3tools/shared/serverSettings";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
@@ -255,15 +258,25 @@ const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
 
-const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
+const loadPersistedStartupSettings = Effect.fn(function* (settingsPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const exists = yield* fs.exists(settingsPath).pipe(Effect.orElseSucceed(() => false));
   if (!exists) {
-    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined, otlpLogsUrl: undefined };
+    return {
+      observability: {
+        otlpTracesUrl: undefined,
+        otlpMetricsUrl: undefined,
+        otlpLogsUrl: undefined,
+      },
+      exportClientView: undefined,
+    };
   }
 
   const raw = yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
-  return parsePersistedServerObservabilitySettings(raw);
+  return {
+    observability: parsePersistedServerObservabilitySettings(raw),
+    exportClientView: parsePersistedServerExportClientView(raw),
+  };
 });
 
 export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(function* (
@@ -376,9 +389,9 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   }
   yield* fs.makeDirectory(cwd, { recursive: true });
   yield* ServerConfig.ensureServerDirectories(derivedPaths);
-  const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
-    derivedPaths.settingsPath,
-  );
+  const persistedStartupSettings = yield* loadPersistedStartupSettings(derivedPaths.settingsPath);
+  const persistedObservabilitySettings = persistedStartupSettings.observability;
+  const exportClientView = env.exportClientView ?? persistedStartupSettings.exportClientView;
   const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
   yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
   const startupPresentation = options?.startupPresentation ?? "browser";
@@ -539,7 +552,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     logWebSocketEvents,
     tailscaleServeEnabled,
     tailscaleServePort,
-    ...(env.exportClientView === true ? { exportClientView: true } : {}),
+    ...(exportClientView === true ? { exportClientView: true } : {}),
   };
 
   return config;

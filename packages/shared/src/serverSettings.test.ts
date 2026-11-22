@@ -22,6 +22,7 @@ import {
   modelPreferencesMigrationPatch,
   resolveModelPreferences,
   isModelSelectionProviderEnabled,
+  parsePersistedServerExportClientView,
   parsePersistedServerObservabilitySettings,
   resolveReviewGuideModelSelection,
   resolveSourceControlWriterModelSelection,
@@ -296,6 +297,17 @@ describe("serverSettings helpers", () => {
       otlpMetricsUrl: undefined,
       otlpLogsUrl: undefined,
     });
+    expect(parsePersistedServerExportClientView("{")).toBeUndefined();
+    expect(parsePersistedServerExportClientView(JSON.stringify({}))).toBeUndefined();
+    expect(parsePersistedServerExportClientView(JSON.stringify({ exportClientView: true }))).toBe(
+      true,
+    );
+    expect(parsePersistedServerExportClientView(JSON.stringify({ exportClientView: false }))).toBe(
+      false,
+    );
+    expect(
+      parsePersistedServerExportClientView(JSON.stringify({ exportClientView: "yes" })),
+    ).toBeUndefined();
   });
 
   it("still deep merges text generation selection when only options are provided", () => {
