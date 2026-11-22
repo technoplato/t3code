@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
+import type { LimitAccountsView } from "@t3tools/client-runtime/state/usage-limit-accounts";
 import {
   type LimitPace,
   paceOf,
@@ -393,10 +394,14 @@ export function UsageLimitsSection({
   selectedEnvironmentIds,
   hiddenProviders,
   now,
+  accountsView,
+  onAccountsViewChange,
 }: {
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
   readonly now: number;
+  readonly accountsView: LimitAccountsView;
+  readonly onAccountsViewChange: (view: LimitAccountsView) => void;
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const hiddenDrivers = new Set<ServerProvider["driver"]>(
@@ -428,5 +433,12 @@ export function UsageLimitsSection({
       ];
     }),
   );
-  return <UsageLimitsPooled presentations={selected} now={now} />;
+  return (
+    <UsageLimitsPooled
+      presentations={selected}
+      now={now}
+      accountsView={accountsView}
+      onAccountsViewChange={onAccountsViewChange}
+    />
+  );
 }

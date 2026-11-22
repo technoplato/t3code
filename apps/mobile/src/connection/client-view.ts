@@ -11,8 +11,17 @@ interface ViewedThread {
   readonly readContent: () => ClientViewContent;
 }
 
+/** What the app's navigation says about the screen on top. */
+export interface ClientViewOverlays {
+  /** Whether a sheet or modal is on top, over the screen it was opened from. */
+  readonly covered: () => boolean;
+  /** Calls `listener` after each navigation change. Returns the stop. */
+  readonly onChange: (listener: () => void) => () => void;
+}
+
 let viewed: ViewedThread | null = null;
 let active: ClientViewTracker | null = null;
+let overlays: ClientViewOverlays | null = null;
 
 /** Says which thread the focused screen shows until the returned cleanup runs. */
 export function viewThread(
@@ -22,11 +31,21 @@ export function viewThread(
   const entry: ViewedThread = { target, readContent };
   viewed = entry;
   active?.setThread(target);
+  const leave = () => {
+    viewed = null;
+    active?.setThread(null);
+  };
   return () => {
     // Another screen may already have taken over.
     if (viewed !== entry) return;
-    viewed = null;
-    active?.setThread(null);
+    if (!overlays?.covered()) return leave();
+    // A sheet over the thread takes its screen's focus, yet the user has not left the thread.
+    // It stays in view until navigation ends with neither a sheet on top nor this screen back.
+    const stop = overlays.onChange(() => {
+      if (viewed === entry && overlays?.covered()) return;
+      stop();
+      if (viewed === entry) leave();
+    });
   };
 }
 
@@ -52,6 +71,7 @@ export function observeClientView(options: {
   readonly nowMs: () => number;
   readonly readFocused: () => boolean;
   readonly onChange: () => void;
+  readonly overlays?: ClientViewOverlays;
 }): { readonly refresh: () => void; readonly stop: () => void } {
   const tracker = makeClientViewTracker({
     windowId: () => options.windowId,
@@ -65,12 +85,15 @@ export function observeClientView(options: {
     onChange: options.onChange,
   });
   active = tracker;
+  overlays = options.overlays ?? null;
   tracker.setThread(viewed?.target ?? null);
   return {
     refresh: tracker.refresh,
     stop: () => {
       tracker.dispose();
-      if (active === tracker) active = null;
+      if (active !== tracker) return;
+      active = null;
+      overlays = null;
     },
   };
 }

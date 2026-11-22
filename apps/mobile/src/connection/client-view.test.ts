@@ -18,6 +18,8 @@ function setup() {
   let nowMs = 1_000;
   let focused = true;
   let changes = 0;
+  let covered = false;
+  const navigationListeners = new Set<() => void>();
   const tracking = observeClientView({
     windowId: "launch-1",
     nowMs: () => nowMs,
@@ -25,8 +27,20 @@ function setup() {
     onChange: () => {
       changes += 1;
     },
+    overlays: {
+      covered: () => covered,
+      onChange: (listener) => {
+        navigationListeners.add(listener);
+        return () => navigationListeners.delete(listener);
+      },
+    },
   });
   return {
+    /** The app navigated; `sheetOnTop` says whether a sheet or modal now covers the screen. */
+    navigate: (sheetOnTop: boolean) => {
+      covered = sheetOnTop;
+      for (const listener of [...navigationListeners]) listener();
+    },
     changes: () => changes,
     now: () => nowMs,
     /** Moves the tracker's clock and its timers together. */
@@ -88,6 +102,38 @@ describe("mobile client view", () => {
     stopViewing();
     app.advance(0);
     expect(clientViewFor(OWNER)).toBeUndefined();
+  });
+
+  it("keeps the thread in view under a sheet, and lets go once the user moves on", () => {
+    using app = setup();
+    const target = { environmentId: OWNER, threadId: THREAD };
+    const read = () => ({ items: [{ id: "message-1", kind: "user", from: 0, to: 1 }] });
+    const viewing = () => {
+      app.advance(1_000);
+      return clientViewFor(OWNER)?.threadId;
+    };
+
+    // A sheet opens over the thread: its screen loses focus, and the thread is still the one in use.
+    let blur = viewThread(target, read);
+    app.navigate(true);
+    blur();
+    expect(viewing()).toBe(THREAD);
+    // One sheet gives way to another.
+    app.navigate(true);
+    expect(viewing()).toBe(THREAD);
+
+    // The sheet closes and the screen has focus again, with no report of leaving in between.
+    const changes = app.changes();
+    blur = viewThread(target, read);
+    app.navigate(false);
+    expect(viewing()).toBe(THREAD);
+    expect(app.changes()).toBe(changes);
+
+    // From a sheet, the user goes on to a page that is not the thread.
+    app.navigate(true);
+    blur();
+    app.navigate(false);
+    expect(viewing()).toBeUndefined();
   });
 
   it("keeps the newer screen's thread when an older screen lets go late", () => {

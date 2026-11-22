@@ -17,6 +17,10 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Cause from "effect/Cause";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 import {
+  DEFAULT_LIMIT_ACCOUNTS_VIEW,
+  type LimitAccountsView,
+} from "@t3tools/client-runtime/state/usage-limit-accounts";
+import {
   updatingProvidersLabel,
   usageEnvironmentProgress,
   usageLoadingState,
@@ -77,6 +81,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
+import { UsageLimitAccountsMenu } from "./UsageLimitAccountsMenu";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
@@ -208,6 +213,7 @@ export function UsagePage() {
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
   const hiddenProviders = new Set(preferences.hiddenProviders);
+  const limitAccounts = preferences.limitAccounts ?? DEFAULT_LIMIT_ACCOUNTS_VIEW;
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const {
@@ -240,6 +246,8 @@ export function UsagePage() {
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
   };
+  const setLimitAccounts = (limitAccounts: LimitAccountsView) =>
+    updatePreferences({ limitAccounts });
   const selectWindow = (days: number) => {
     if (!isUsageWindowDays(days)) return;
     updatePreferences({ windowDays: days });
@@ -440,6 +448,9 @@ export function UsagePage() {
             </Toggle>
           ))}
         </ToggleGroup>
+        {showingLimits ? (
+          <UsageLimitAccountsMenu view={limitAccounts} onChange={setLimitAccounts} />
+        ) : null}
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? gt("Refresh limits") : gt("Refresh usage")}
@@ -497,6 +508,9 @@ export function UsagePage() {
             ))}
           </SelectPopup>
         </Select>
+        {showingLimits ? (
+          <UsageLimitAccountsMenu view={limitAccounts} onChange={setLimitAccounts} />
+        ) : null}
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? gt("Refresh limits") : gt("Refresh usage")}
@@ -536,6 +550,8 @@ export function UsagePage() {
                 selectedEnvironmentIds={selectedEnvironmentIds}
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
+                accountsView={limitAccounts}
+                onAccountsViewChange={setLimitAccounts}
               />
             ) : shown === null ? (
               <UsageSkeleton />

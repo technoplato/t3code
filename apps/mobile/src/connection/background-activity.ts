@@ -16,6 +16,8 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AppState } from "react-native";
 
+import { isWorkspaceOverlayRoute } from "../features/layout/workspace-overlay-routes";
+import { rootNavigationRef } from "../lib/rootNavigation";
 import { uuidv4 } from "../lib/uuid";
 import * as MobileStorage from "../persistence/mobile-storage";
 import {
@@ -121,6 +123,14 @@ export const layerReporter = Layer.effectDiscard(
           nowMs: () => clock.currentTimeMillisUnsafe(),
           readFocused: () => appState === "active",
           onChange: requestReport,
+          overlays: {
+            covered: () => {
+              const state = rootNavigationRef.isReady() ? rootNavigationRef.getRootState() : null;
+              const top = state?.routes[state.index];
+              return top !== undefined && isWorkspaceOverlayRoute(top.name);
+            },
+            onChange: (listener) => rootNavigationRef.addListener("state", listener),
+          },
         });
         const subscription = AppState.addEventListener("change", (nextState) => {
           appState = nextState;

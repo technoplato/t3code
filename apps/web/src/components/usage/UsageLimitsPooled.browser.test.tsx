@@ -6,7 +6,6 @@ import {
 } from "@t3tools/contracts";
 import { CHATGPT_USAGE_URL } from "@t3tools/shared/usageLimits";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
 
 import "../../index.css";
 
@@ -103,22 +102,23 @@ describe("UsageLimitsPooled account order", () => {
       />,
     );
 
-    const source = screen.getByRole("button", { name: /^Soon: / }).element();
-    const target = screen.getByRole("button", { name: /^Late: / }).element();
-    const a = source.getBoundingClientRect();
-    const b = target.getBoundingClientRect();
-    console.log("RECTS", JSON.stringify(a), JSON.stringify(b));
-    const ev = (type: string, x: number) =>
-      new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: a.y + a.height / 2 });
-    source.dispatchEvent(ev("mousedown", a.x + a.width / 2));
-    document.dispatchEvent(ev("mousemove", a.x + a.width / 2 + 10));
-    await new Promise((r) => setTimeout(r, 50));
-    document.dispatchEvent(ev("mousemove", b.x + b.width / 2));
-    await new Promise((r) => setTimeout(r, 50));
-    console.log("TRANSFORM", source.style.transform, target.style.transform);
-    document.dispatchEvent(ev("mouseup", b.x + b.width / 2));
-    await new Promise((r) => setTimeout(r, 50));
-    void userEvent;
+    const source = screen.getByRole("button", { name: /^Soon: / }).element() as HTMLElement;
+    const target = screen.getByRole("button", { name: /^Late: / }).element() as HTMLElement;
+    const from = source.getBoundingClientRect();
+    const to = target.getBoundingClientRect();
+    const mouse = (type: string, clientX: number) =>
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY: from.y + from.height / 2,
+      });
+    source.dispatchEvent(mouse("mousedown", from.x + from.width / 2));
+    // The first move passes the activation distance; the drag only tracks moves after it.
+    document.dispatchEvent(mouse("mousemove", from.x + from.width / 2 + 10));
+    document.dispatchEvent(mouse("mousemove", to.x + to.width / 2));
+    await vi.waitFor(() => expect(target.style.transform).toMatch(/translate3d\(-?[1-9]/));
+    document.dispatchEvent(mouse("mouseup", to.x + to.width / 2));
 
     expect(onAccountsViewChange).toHaveBeenCalledWith({
       sort: "manual",

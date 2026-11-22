@@ -137,6 +137,7 @@ import {
   runtimeModeRank,
   taskPrompt,
 } from "./delegatedTaskModes.ts";
+import { capabilityQuota } from "./capabilityQuota.ts";
 import { assertTargetWithinLimits, isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
@@ -1315,6 +1316,9 @@ function timelineItemsWithinBudget(
     : { items, start: 0 };
 }
 
+/** Twice the default health probe interval. */
+const QUOTA_STALE_MS = 10 * 60_000;
+
 const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -1594,6 +1598,40 @@ const make = Effect.gen(function* () {
   });
 
   const loadProviders = providerRegistry.getProviders;
+
+  /**
+   * Health probes pause while no client watches providers, so a delegating agent could act on an
+   * old reading. One probe per instance per window, never awaited: a probe starts the provider CLI.
+   */
+  const quotaRefreshStartedAt = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
+  const backgroundScope = yield* Effect.scope;
+  const refreshStaleQuota = Effect.fn("OrchestratorMcpService.refreshStaleQuota")(function* (
+    providers: ReadonlyArray<ServerProvider>,
+    nowMs: number,
+  ) {
+    const stale = providers.filter(
+      (provider) =>
+        provider.enabled &&
+        provider.usageLimits !== undefined &&
+        nowMs - Date.parse(provider.usageLimits.checkedAt) > QUOTA_STALE_MS,
+    );
+    const due = yield* Ref.modify(quotaRefreshStartedAt, (startedAt) => {
+      const due = stale.filter(
+        (provider) =>
+          nowMs - (startedAt.get(provider.instanceId) ?? Number.NEGATIVE_INFINITY) > QUOTA_STALE_MS,
+      );
+      return [
+        due,
+        due.length === 0
+          ? startedAt
+          : new Map([...startedAt, ...due.map((provider) => [provider.instanceId, nowMs] as const)]),
+      ];
+    });
+    yield* Effect.forEach(due, (provider) => providerRegistry.refreshInstance(provider.instanceId), {
+      concurrency: "unbounded",
+      discard: true,
+    }).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(backgroundScope));
+  });
 
   /** The folder the composer's model picker scans for this thread. */
   const parentWorkspaceCwd = (parent: Pick<OrchestrationV2ThreadProjection, "thread">) =>
@@ -2774,6 +2812,8 @@ const make = Effect.gen(function* () {
       );
       const inherited = parent?.thread.modelSelection;
       const searchTerms = input.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+      const nowMs = yield* Clock.currentTimeMillis;
+      yield* refreshStaleQuota(providers, nowMs);
       return {
         parentThreadId: parent?.thread.id ?? null,
         inheritedProviderInstanceId: inherited?.instanceId ?? null,
@@ -2813,6 +2853,15 @@ const make = Effect.gen(function* () {
                   favorite.provider === provider.instanceId && favorite.model === model.slug,
               ),
           });
+          const { quota, constraints: quotaConstraints } =
+            constraints.length === 0
+              ? capabilityQuota({
+                  provider,
+                  listedModels: listed.map((model) => model.slug),
+                  now: nowMs,
+                })
+              : { constraints: [] };
+          const canRunChildTask = constraints.length === 0 && quota?.exhausted !== true;
           return {
             providerInstanceId: provider.instanceId,
             driverKind: provider.driver,
@@ -2832,9 +2881,10 @@ const make = Effect.gen(function* () {
             provider.supportedRuntimeModes.length === 0
               ? {}
               : { runtimeModes: [...provider.supportedRuntimeModes] }),
-            canRunChildTask: constraints.length === 0,
-            canRunCrossProviderChildTask: constraints.length === 0,
-            constraints: [...constraints],
+            canRunChildTask,
+            canRunCrossProviderChildTask: canRunChildTask,
+            constraints: [...constraints, ...quotaConstraints],
+            ...(quota === undefined ? {} : { quota }),
           };
         }),
         features: {

@@ -1,5 +1,6 @@
 import { ProviderDriverKind, type ServerProviderUsageWindow } from "@t3tools/contracts";
 import { collectLimitPools, type LimitAccount } from "@t3tools/shared/usageLimits";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -10,7 +11,7 @@ import {
 } from "./usageLimitAccounts.ts";
 
 const NOW = Date.parse("2026-09-03T12:00:00.000Z");
-const at = (hours: number) => new Date(NOW + hours * 3_600_000).toISOString();
+const at = (hours: number) => DateTime.formatIso(DateTime.makeUnsafe(NOW + hours * 3_600_000));
 
 const session = (usedPercent: number, resetsInHours?: number): ServerProviderUsageWindow => ({
   id: "five_hour",

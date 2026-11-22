@@ -80,6 +80,7 @@ import {
   RuntimeMode,
 } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { ServerProviderUsageWindow } from "./providerUsageLimits.ts";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 import { PROJECT_TRACKED_FOLDERS_MAX } from "./project.ts";
 import {
@@ -1000,6 +1001,24 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 
+/** The usage window a limit error names. `modelScoped` marks an allowance only the run's model spends. */
+export const OrchestrationV2UsageLimitWindow = Schema.Struct({
+  kind: ServerProviderUsageWindow.fields.kind,
+  modelScoped: Schema.optional(Schema.Literal(true)),
+});
+export type OrchestrationV2UsageLimitWindow = typeof OrchestrationV2UsageLimitWindow.Type;
+
+/** A run that failed on a usage limit: what its orchestrator needs to restart the work elsewhere. */
+export const OrchestrationV2QuotaExhausted = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
+  model: Schema.String,
+  /** Absent when the provider did not name the window. */
+  window: Schema.optional(ServerProviderUsageWindow.fields.kind),
+  modelScoped: Schema.optional(Schema.Literal(true)),
+  resetsAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationV2QuotaExhausted = typeof OrchestrationV2QuotaExhausted.Type;
+
 export const OrchestrationV2Subagent = Schema.Struct({
   id: NodeId,
   threadId: ThreadId,
@@ -1035,6 +1054,8 @@ export const OrchestrationV2Subagent = Schema.Struct({
   progress: Schema.optional(Schema.String),
   workflow: Schema.optional(OrchestrationV2SubagentWorkflow),
   result: Schema.NullOr(Schema.String),
+  /** Set while the task's latest outcome is a run that failed on a usage limit. */
+  quotaExhausted: Schema.optional(OrchestrationV2QuotaExhausted),
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   updatedAt: Schema.DateTimeUtc,
@@ -1700,6 +1721,8 @@ export const OrchestrationV2ProviderFailure = Schema.Struct({
   code: Schema.NullOr(OrchestrationV2ProviderFailureCode),
   retryable: Schema.NullOr(Schema.Boolean),
   resetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  /** With `usage_limit`: the window that ran out, when the provider names it. */
+  limitWindow: Schema.optional(OrchestrationV2UsageLimitWindow),
 });
 export type OrchestrationV2ProviderFailure = typeof OrchestrationV2ProviderFailure.Type;
 

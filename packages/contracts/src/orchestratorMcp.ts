@@ -39,11 +39,13 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2DelegatedFrom,
+  OrchestrationV2QuotaExhausted,
   OrchestrationV2RunStatus,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { ServerProviderUsageWindow } from "./providerUsageLimits.ts";
 
 const OrchestratorMcpPrompt = TrimmedNonEmptyString.check(Schema.isMaxLength(120_000));
 const OrchestratorMcpTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
@@ -214,6 +216,11 @@ const OrchestratorMcpExecutedModel = Schema.NullOr(Schema.String).annotate({
     "Model the provider reported running, or null when unavailable. Can differ from the requested `model`.",
 });
 
+const OrchestratorMcpQuotaExhausted = OrchestrationV2QuotaExhausted.annotate({
+  description:
+    "Set when the run failed on a usage limit. That provider instance cannot run `model` until `resetsAt`; restart the work on another instance.",
+});
+
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   taskId: NodeId,
   /** Null for a task that runs in a linked environment; see `remoteChild`. */
@@ -253,6 +260,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   waitTimedOut: Schema.Boolean.annotate({
     description: "True only on the timed-out wait call. The child keeps running.",
   }),
+  quotaExhausted: Schema.optional(OrchestratorMcpQuotaExhausted),
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
 });
 export type OrchestratorMcpDelegateTaskResult = typeof OrchestratorMcpDelegateTaskResult.Type;
@@ -612,6 +620,7 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   resultRun: Schema.optional(Schema.Struct({ runId: RunId, status: OrchestrationV2RunStatus })),
   /** What the run returned against the `outputSchema` it was sent with. Absent until submitted. */
   output: Schema.optional(Schema.Json),
+  quotaExhausted: Schema.optional(OrchestratorMcpQuotaExhausted),
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
@@ -658,6 +667,26 @@ export const OrchestratorMcpModelOption = Schema.Struct({
 });
 export type OrchestratorMcpModelOption = typeof OrchestratorMcpModelOption.Type;
 
+export const OrchestratorMcpQuotaWindow = Schema.Struct({
+  kind: ServerProviderUsageWindow.fields.kind,
+  /** Omitted when it only restates the kind. */
+  label: Schema.optional(Schema.String),
+  /** The listed models this window meters. Absent when it meters every model. */
+  models: Schema.optional(Schema.Array(Schema.String)),
+  remainingPercent: Schema.Number,
+  resetsAt: Schema.optional(IsoDateTime),
+});
+export type OrchestratorMcpQuotaWindow = typeof OrchestratorMcpQuotaWindow.Type;
+
+/** The instance's last usage reading. Absent when T3 has none, which is unknown, not full. */
+export const OrchestratorMcpProviderQuota = Schema.Struct({
+  checkedAt: IsoDateTime,
+  windows: Schema.Array(OrchestratorMcpQuotaWindow),
+  /** A window that meters every model is spent. */
+  exhausted: Schema.optional(Schema.Literal(true)),
+});
+export type OrchestratorMcpProviderQuota = typeof OrchestratorMcpProviderQuota.Type;
+
 export const OrchestratorMcpProviderCapability = Schema.Struct({
   providerInstanceId: ProviderInstanceId,
   driverKind: ProviderDriverKind,
@@ -676,6 +705,7 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
   canRunChildTask: Schema.Boolean,
   canRunCrossProviderChildTask: Schema.Boolean,
   constraints: Schema.Array(Schema.String),
+  quota: Schema.optional(OrchestratorMcpProviderQuota),
 });
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 

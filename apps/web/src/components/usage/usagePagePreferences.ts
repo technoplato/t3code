@@ -1,3 +1,4 @@
+import { LimitAccountsView } from "@t3tools/client-runtime/state/usage-limit-accounts";
 import { UsageProviderKind } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
@@ -8,6 +9,7 @@ const UsagePagePreferencesSchema = Schema.Struct({
   metric: Schema.Literals(["cost", "tokens", "limits"]),
   windowDays: Schema.Literals([1, 7, 30, 90]),
   hiddenProviders: Schema.optional(Schema.Array(UsageProviderKind)),
+  limitAccounts: Schema.optional(LimitAccountsView),
 });
 export type UsagePagePreferences = typeof UsagePagePreferencesSchema.Type;
 

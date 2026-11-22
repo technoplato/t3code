@@ -1,5 +1,6 @@
 import type {
   OrchestrationV2ProviderFailure,
+  OrchestrationV2QuotaExhausted,
   OrchestrationV2Run,
   OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
@@ -42,6 +43,23 @@ export function latestRootProviderFailureItem(
     }
   }
   return latest;
+}
+
+/** Set for a run that failed on a usage limit: the login and model to move the work off. */
+export function runQuotaExhausted(
+  run: OrchestrationV2Run | null,
+  turnItems: ReadonlyArray<FailureScanTurnItem>,
+): OrchestrationV2QuotaExhausted | null {
+  const failure = latestRootProviderFailure(run, turnItems);
+  if (run === null || failure?.class !== "usage_limit") return null;
+  const window = failure.limitWindow;
+  return {
+    providerInstanceId: run.providerInstanceId,
+    model: run.modelSelection.model,
+    ...(window === undefined ? {} : { window: window.kind }),
+    ...(window?.modelScoped === true ? { modelScoped: true } : {}),
+    resetsAt: failure.resetAt ?? null,
+  };
 }
 
 export function threadErrorSummary(

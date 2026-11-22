@@ -24,9 +24,20 @@ afterEach(() => {
 });
 
 describe("Usage page preferences", () => {
-  it("round-trips hidden providers and reads older saves without them", () => {
-    saveUsagePagePreferences({ metric: "cost", windowDays: 7, hiddenProviders: ["codex"] });
-    expect(readUsagePagePreferences().hiddenProviders).toEqual(["codex"]);
+  it("round-trips hidden providers and the account view, and reads older saves without them", () => {
+    const limitAccounts = {
+      sort: "manual",
+      hideEmptySessions: true,
+      hideEmptyWeeks: false,
+      order: ["desk:claude_work", "desk:claude_home"],
+    } as const;
+    saveUsagePagePreferences({
+      metric: "cost",
+      windowDays: 7,
+      hiddenProviders: ["codex"],
+      limitAccounts,
+    });
+    expect(readUsagePagePreferences()).toMatchObject({ hiddenProviders: ["codex"], limitAccounts });
 
     values.set(key, '{"metric":"tokens","windowDays":30}');
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 30 });

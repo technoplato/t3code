@@ -107,6 +107,7 @@ import {
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderFailure,
+  type OrchestrationV2UsageLimitWindow,
   OrchestrationV2ProviderGoal,
   type OrchestrationV2PlanArtifact,
   type OrchestrationV2PlanStep,
@@ -4881,6 +4882,19 @@ function claudeUsageLimitResetAt(resetsAt: unknown): string | null {
   return Number.isFinite(resetMs) && resetMs > 0 && resetMs < 8.64e15
     ? DateTime.formatIso(DateTime.makeUnsafe(resetMs))
     : null;
+}
+
+/** The rejected window that refills last is the one holding the login back. */
+export function claudeLimitWindow(
+  rejected: ReadonlyArray<readonly [type: string, resetAt: string | null]>,
+): OrchestrationV2UsageLimitWindow | undefined {
+  const [type] = rejected.toSorted(([, a], [, b]) => ((b ?? "") > (a ?? "") ? 1 : -1))[0] ?? [];
+  if (type === "five_hour") return { kind: "session" };
+  if (type === "seven_day") return { kind: "weekly" };
+  // seven_day_opus, seven_day_sonnet and seven_day_overage_included meter one model's allowance.
+  if (type?.startsWith("seven_day_")) return { kind: "weekly", modelScoped: true };
+  if (type === "overage") return { kind: "monthly" };
+  return undefined;
 }
 
 function gatewayCooldownResetAt(
@@ -12335,9 +12349,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               resetTimes.length > 0 && resetTimes.every((time) => time !== null)
                 ? resetTimes.reduce((latest, time) => (time! > latest ? time! : latest), "")
                 : null;
+            const limitWindow = claudeLimitWindow([
+              ...context.rateLimitResetTimes,
+              ...(assistantLimit?.type == null
+                ? []
+                : [[assistantLimit.type, assistantLimit.resetAt] as const]),
+            ]);
             const terminalFailure =
               resultFailure?.class === "usage_limit"
-                ? { ...resultFailure, resetAt }
+                ? { ...resultFailure, resetAt, ...(limitWindow && { limitWindow }) }
                 : resultFailure;
             const status = interrupted
               ? "interrupted"

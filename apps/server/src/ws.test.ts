@@ -2765,24 +2765,30 @@ it.effect(
         Layer.succeed(ClientViewExport.ClientViewExport, clientViewService),
       );
 
+      // The connection's own scope, so closing it is the client going away.
+      const connection = yield* Scope.make();
       const client = yield* RpcTest.makeClient(reportClientActivityRpcs).pipe(
         Effect.provide(
-          layerWsRpc(
-            {
-              sessionId: AuthSessionId.make("view-test"),
-              subject: "view-test",
-              method: "browser-session-cookie",
-              scopes: [],
-            },
-            {},
-            yield* ServerBrowser.ServerBrowser,
-            () => Effect.void,
-            { secretReferences: true },
-          ).pipe(
-            Layer.provide(services),
-            Layer.merge(RpcAuthorization.layer([AuthOrchestrationReadScope])),
+          yield* Layer.buildWithScope(
+            layerWsRpc(
+              {
+                sessionId: AuthSessionId.make("view-test"),
+                subject: "view-test",
+                method: "browser-session-cookie",
+                scopes: [],
+              },
+              {},
+              yield* ServerBrowser.ServerBrowser,
+              () => Effect.void,
+              { secretReferences: true },
+            ).pipe(
+              Layer.provide(services),
+              Layer.merge(RpcAuthorization.layer([AuthOrchestrationReadScope])),
+            ),
+            connection,
           ),
         ),
+        Scope.provide(connection),
       );
 
       const targetPath = path.join(config.stateDir, ClientViewExport.CLIENT_VIEW_FILE_NAME);
@@ -2870,6 +2876,34 @@ it.effect(
 
       const cleared = yield* awaitState("none");
       assert.equal(cleared.state, "none");
+
+      // Back on the thread, then the connection drops with no word from the client.
+      yield* TestClock.adjust("2 seconds");
+      yield* client[WS_METHODS.serverReportClientActivity]({
+        environmentId: envId,
+        clientId: "tablet-client",
+        clientKind: "mobile",
+        visible: true,
+        focused: true,
+        recentlyInteracted: true,
+        appState: "active",
+        scopes: [{ type: "provider-status" }],
+        ttlMs: 45_000,
+        observedAt: now,
+        view: {
+          windowId: "window-1",
+          seq: 2,
+          focused: true,
+          lastGestureAtMs: DateTime.toEpochMillis(now),
+          environmentId: envId,
+          threadId,
+          items: [{ id: messageId, kind: "assistant", from: 0, to: 1 }],
+        },
+      });
+      assert.equal((yield* awaitState("active")).state, "active");
+      yield* TestClock.adjust("2 seconds");
+      yield* Scope.close(connection, Exit.void);
+      assert.equal((yield* awaitState("none")).state, "none");
     }).pipe(
       Effect.scoped,
       Effect.provide(
