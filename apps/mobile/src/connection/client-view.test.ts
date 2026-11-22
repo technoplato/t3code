@@ -39,7 +39,7 @@ function setup() {
     /** The app navigated; `sheetOnTop` says whether a sheet or modal now covers the screen. */
     navigate: (sheetOnTop: boolean) => {
       covered = sheetOnTop;
-      for (const listener of [...navigationListeners]) listener();
+      for (const listener of navigationListeners) listener();
     },
     changes: () => changes,
     now: () => nowMs,
