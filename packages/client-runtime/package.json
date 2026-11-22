@@ -59,6 +59,10 @@
       "types": "./src/locales.ts",
       "default": "./src/locales.ts"
     },
+    "./provider-quota-remaining": {
+      "types": "./src/providerQuotaRemaining.ts",
+      "default": "./src/providerQuotaRemaining.ts"
+    },
     "./model-search": {
       "types": "./src/modelSearch.ts",
       "default": "./src/modelSearch.ts"
