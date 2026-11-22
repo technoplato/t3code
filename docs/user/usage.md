@@ -157,6 +157,13 @@ row to see when it resets and your pace. Turn on **Context window** to also show
 context use against the model's limit. A tick on the bar marks where the provider compacts
 automatically, when it reports that point.
 
+On mobile, with several accounts of one provider, **Thread settings** can pick the one with the
+most quota left. Open the filter menu and choose **Sort → Most remaining**. The accounts that offer
+the selected model move to the top, most left first, each showing its tightest window: the least
+left across the session, weekly, and model-specific limits that count that model. An account that
+has used up any of them comes last. Choosing the sort, and opening the sheet while it is on,
+selects the account with the most left; save to use it for the next message, or pick another row.
+
 OpenCode Go reports its session, weekly, and monthly allowance when OpenCode runs locally in
 the environment. T3 cannot report limits for external OpenCode servers because their credentials
 belong to the remote server. Limits need an OpenCode Go API key, or an OpenCode Console connected
