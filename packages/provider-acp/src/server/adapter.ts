@@ -152,6 +152,8 @@ const ACP_DEFERRED_FINALIZE_DEBOUNCE: Duration.Input = "3000 millis";
 // A model can stay silent this long before the first token of a reply the agent started itself.
 const ACP_OPEN_REPLY_QUIET_LIMIT: Duration.Input = "2 minutes";
 const ACP_BUSY_PROMPT_RETRY_INTERVAL: Duration.Input = "1 second";
+// How often a settled turn asks again which of its outliving subagents still work.
+const ACP_OUTLIVING_SUBAGENT_RECHECK: Duration.Input = "1 minute";
 // Agents such as omp advertise a loaded session's commands shortly after answering session/load.
 const ACP_LOADED_COMMANDS_WAIT: Duration.Input = "2 seconds";
 const ACP_PROMPT_INACTIVITY_SLICE_MILLIS = 60_000;
@@ -1747,6 +1749,8 @@ interface ActiveAcpTurn {
   /** Clock millis of the prompt's last progress, for `promptInactivityTimeout`. */
   lastProgressAt: number;
   inactivityWatchdog: Fiber.Fiber<void> | undefined;
+  /** `subagentsOutlivingPrompt`: the loop that asks again about subagents holding this turn runs. */
+  outlivingSubagentRecheck: boolean;
 }
 
 type AcpRuntimeTeardownState =
@@ -2734,6 +2738,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
           Queue.offer(events, event).pipe(Effect.asVoid);
         let scheduleDeferredFinalize: (context: ActiveAcpTurn) => Effect.Effect<void> = () =>
+          Effect.void;
+        let recheckOutlivingSubagents: (context: ActiveAcpTurn) => Effect.Effect<void> = () =>
           Effect.void;
         let refreshModelSwitchCapability: Effect.Effect<void> = Effect.void;
         // openSession configures the session itself; a late setup that lands
@@ -4332,24 +4338,26 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const idleReportedSubagents = Effect.fn("AcpAdapterV2.idleReportedSubagents")(function* (
           context: ActiveAcpTurn,
         ) {
-          if (flavor.subagentsOutlivingPrompt === undefined) return;
+          if (flavor.subagentsOutlivingPrompt === undefined) return 0;
           const nativeTaskId = (subagent: ActiveAcpSubagent) =>
             subagent.task.nativeTaskRef?.nativeId ?? String(subagent.task.id);
           const running = [...context.subagents.values()].filter((subagent) =>
             acpSubagentStatusBlocksTurnSettlement(subagent.task.status),
           );
-          if (running.length === 0) return;
+          if (running.length === 0) return 0;
           const atWork = yield* flavor.subagentsOutlivingPrompt({
             sessionId: context.nativeThreadId,
             nativeTaskIds: running.map(nativeTaskId),
           });
-          if (context.finalized) return;
+          if (context.finalized) return 0;
+          let idled = 0;
           for (const subagent of running) {
             if (
               atWork.includes(nativeTaskId(subagent)) ||
               !acpSubagentStatusBlocksTurnSettlement(subagent.task.status)
             )
               continue;
+            idled += 1;
             yield* emitSubagent(context, {
               nativeTaskId: nativeTaskId(subagent),
               prompt: subagent.task.prompt,
@@ -4360,7 +4368,28 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               result: null,
             });
           }
+          if (idled < running.length) yield* recheckOutlivingSubagents(context);
+          return idled;
         });
+
+        // A subagent that stops without waking the agent produces no reply to ask after, so a
+        // settled turn it still holds is asked about again on a clock. One loop per turn.
+        recheckOutlivingSubagents = Effect.fn("AcpAdapterV2.recheckOutlivingSubagents")(
+          function* (context) {
+            if (context.outlivingSubagentRecheck || !context.promptSettled) return;
+            context.outlivingSubagentRecheck = true;
+            yield* Effect.gen(function* () {
+              while (true) {
+                yield* Effect.sleep(ACP_OUTLIVING_SUBAGENT_RECHECK);
+                if (context.finalized || context.interrupted) return;
+                // Re-arming restarts the finalize debounce, so only when a hold was released.
+                if ((yield* idleReportedSubagents(context)) > 0) {
+                  yield* rearmDeferredFinalize(context);
+                }
+              }
+            }).pipe(Effect.forkIn(sessionScope), Effect.asVoid);
+          },
+        );
 
         const hasSurvivingBackgroundWork = (context: ActiveAcpTurn): boolean =>
           [...context.toolCallIdsByBackgroundTaskId.values()].some((toolCallId) => {
@@ -9604,6 +9633,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               nativePromptId: undefined,
               lastProgressAt: 0,
               inactivityWatchdog: undefined,
+              outlivingSubagentRecheck: false,
             };
             const carryover = yield* Ref.getAndSet(carryoverSubagents, null);
             let rehydratedCarryoverSubagents: ReadonlyArray<ActiveAcpSubagent> = [];

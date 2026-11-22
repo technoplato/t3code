@@ -47,21 +47,33 @@ interface AntigravityChildLaunch {
 }
 
 const LaunchInput = Schema.Struct({ Role: Schema.String, Prompt: Schema.String });
+// agy 1.5.14 `swarm`: the worker's board name and the brief it starts from.
+const SwarmAddInput = Schema.Struct({
+  action: Schema.Literal("add"),
+  name: Schema.String,
+  brief: Schema.String,
+});
 // agy 1.5 launches one child per call with a flat input; earlier releases send a batch.
 const decodeLaunchInput = Schema.decodeUnknownOption(
-  Schema.Union([Schema.Struct({ Subagents: Schema.NonEmptyArray(LaunchInput) }), LaunchInput]),
+  Schema.Union([
+    Schema.Struct({ Subagents: Schema.NonEmptyArray(LaunchInput) }),
+    LaunchInput,
+    SwarmAddInput,
+  ]),
 );
 
-/** `invoke_subagent` arguments, from the permission prompt or the persisted record. */
+/** `invoke_subagent` or `swarm` add arguments, from the permission prompt or the persisted record. */
 export function antigravitySubagentLaunches(
   input: unknown,
 ): ReadonlyArray<AntigravityChildLaunch> | undefined {
   return Option.getOrUndefined(
     Option.map(decodeLaunchInput(input), (decoded) =>
-      ("Subagents" in decoded ? decoded.Subagents : [decoded]).map((entry) => ({
-        role: entry.Role,
-        prompt: entry.Prompt,
-      })),
+      "action" in decoded
+        ? [{ role: decoded.name, prompt: decoded.brief }]
+        : ("Subagents" in decoded ? decoded.Subagents : [decoded]).map((entry) => ({
+            role: entry.Role,
+            prompt: entry.Prompt,
+          })),
     ),
   );
 }
@@ -575,12 +587,22 @@ async function listDetachedChildIds(
   return childIds.length > MAX_DETACHED_CHILDREN ? undefined : childIds;
 }
 
+const SWARM_TOOL = "swarm";
+
+/** A `swarm` call starts a worker only as `add`; its other actions reach workers' inboxes too. */
+function isSwarmAdd(argumentsJson: string | undefined) {
+  if (argumentsJson === undefined) return false;
+  const input = Option.getOrUndefined(decodeArgument(argumentsJson));
+  return Predicate.isObject(input) && input.action === "add";
+}
+
 function detachedLaunchCall(message: ChildMessage, rootSessionId: string) {
   const tool = message.sourceMetadata?.tool;
   const call = tool?.toolCall;
   return message.sender === rootSessionId &&
     (tool?.conversationId === undefined || tool.conversationId === rootSessionId) &&
-    call?.name === "invoke_subagent"
+    (call?.name === "invoke_subagent" ||
+      (call?.name === SWARM_TOOL && isSwarmAdd(call.argumentsJson)))
     ? call
     : undefined;
 }
@@ -776,11 +798,63 @@ export const readAntigravityPendingReply = Effect.fn("readAntigravityPendingRepl
   },
 );
 
+const SWARM_WAIT_TOOL = "swarm_wait";
+
 /**
- * agy 1.5 children outlive their `invoke_subagent` call and the agent reports no end for them:
- * a child is done, or waits for guidance, once its message is in the parent's inbox or its record
- * says it was killed. Returns the launching tool call ids of children with neither; none when the
- * records prove nothing.
+ * The runtime's own rule for a swarm member whose run has stopped: its newest planner step is a
+ * reply with no tool call, or a tool batch with `swarm_wait` whose result is in. Anything newer
+ * (a background task's message, a model error being retried) or an unreadable line is mid-turn.
+ */
+function swarmTurnEnded(lines: ReadonlyArray<string>): boolean {
+  const results: Array<Schema.Schema.Type<typeof TranscriptLine>> = [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const step = Option.getOrUndefined(decodeTranscriptLine(lines[index]));
+    if (step === undefined) return false;
+    if (step.type === "GENERIC") {
+      results.unshift(step);
+      continue;
+    }
+    if (step.type !== "PLANNER_RESPONSE") return false;
+    const calls = step.tool_calls ?? [];
+    if (calls.length === 0) return results.length === 0;
+    // Results are logged in call order, so the wait's own result sits at its index.
+    const wait = calls.findIndex((call) => call.name === SWARM_WAIT_TOOL);
+    return wait >= 0 && results.length >= calls.length && results[wait]?.status === "DONE";
+  }
+  return false;
+}
+
+/** False while the worker is mid-turn, has no transcript yet, or its newest turn is out of reach. */
+async function swarmWorkerTurnEnded(profileRoot: string, conversationId: string) {
+  const transcript = await antigravityManagedPath(
+    profileRoot,
+    ["antigravity-acp", "brain", conversationId, ".system_generated", "logs", "transcript.jsonl"],
+    "file",
+  );
+  if (transcript === undefined) return false;
+  const handle = await NodeFSP.open(
+    transcript.path,
+    NodeFS.constants.O_RDONLY | (NodeFS.constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) return false;
+    const start = Math.max(0, stat.size - TRANSCRIPT_BYTE_CAP);
+    const buffer = Buffer.alloc(stat.size - start);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
+    const lines = buffer.toString("utf8", 0, bytesRead).split("\n");
+    // A tail that starts mid-file opens on a cut line.
+    if (start > 0) lines.shift();
+    return swarmTurnEnded(lines.filter((line) => line.trim() !== ""));
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Launching tool call ids of agy 1.5 children still at work; none when the records prove nothing.
+ * A child is done once it was killed or its message is in the parent's inbox. A `swarm` worker's
+ * board notes reach that inbox while it works on, so it is done once its own turn has ended.
  */
 export const readAntigravityChildrenAtWork = Effect.fn("readAntigravityChildrenAtWork")(
   function* (input: {
@@ -801,16 +875,21 @@ export const readAntigravityChildrenAtWork = Effect.fn("readAntigravityChildrenA
       );
       const atWork: Array<string> = [];
       for (const childId of childIds) {
-        if (reported.has(childId)) continue;
-        // `manage_subagents` kill only marks the record; a killed child never reports.
+        // `manage_subagents` and `swarm` kill only mark the record; a killed child never reports.
         const subagent = await readDetachedSubagent(profileRoot, input.rootSessionId, childId);
         if (subagent?.state === "SUBAGENT_STATE_KILLED") continue;
-        for (const message of await readInbox(profileRoot, childId)) {
+        // A reported child is done unless its inbox proves it a swarm worker.
+        const inbox = reported.has(childId)
+          ? await readInbox(profileRoot, childId).catch(() => [])
+          : await readInbox(profileRoot, childId);
+        const launches = inbox.flatMap((message) => {
           const launch = detachedLaunchCall(message, input.rootSessionId);
-          if (launch !== undefined && input.toolCallIds.includes(launch.id)) {
-            atWork.push(launch.id);
-          }
-        }
+          return launch !== undefined && input.toolCallIds.includes(launch.id) ? [launch] : [];
+        });
+        const done = launches.some((launch) => launch.name === SWARM_TOOL)
+          ? await swarmWorkerTurnEnded(profileRoot, childId)
+          : reported.has(childId);
+        if (!done) atWork.push(...launches.map((launch) => launch.id));
       }
       return atWork;
     };

@@ -69,7 +69,7 @@ import {
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
-import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
+import { runQuotaExhausted, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { threadPullRequestUpdatedAtMs } from "@t3tools/shared/threadPullRequests";
@@ -1624,13 +1624,20 @@ const make = Effect.gen(function* () {
         due,
         due.length === 0
           ? startedAt
-          : new Map([...startedAt, ...due.map((provider) => [provider.instanceId, nowMs] as const)]),
+          : new Map([
+              ...startedAt,
+              ...due.map((provider) => [provider.instanceId, nowMs] as const),
+            ]),
       ];
     });
-    yield* Effect.forEach(due, (provider) => providerRegistry.refreshInstance(provider.instanceId), {
-      concurrency: "unbounded",
-      discard: true,
-    }).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(backgroundScope));
+    yield* Effect.forEach(
+      due,
+      (provider) => providerRegistry.refreshInstance(provider.instanceId),
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
+    ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(backgroundScope));
   });
 
   /** The folder the composer's model picker scans for this thread. */
@@ -2025,6 +2032,15 @@ const make = Effect.gen(function* () {
         instanceId: task.providerInstanceId,
         model: task.model,
       };
+    // A wait can return before the parent's task settles, so the failed run is read directly.
+    const failedRun = taskResultRun ?? childRun;
+    const quotaExhausted =
+      status !== "failed"
+        ? null
+        : (task.quotaExhausted ??
+          (failedRun === undefined
+            ? null
+            : runQuotaExhausted(failedRun, childProjection.turnItems)));
     const result = {
       taskId: task.id,
       childThreadId: task.childThreadId,
@@ -2064,6 +2080,7 @@ const make = Effect.gen(function* () {
           ? null
           : pendingTaskApproval(childControls, task.id, childRun),
       waitTimedOut,
+      ...(quotaExhausted == null ? {} : { quotaExhausted }),
     } satisfies OrchestratorMcpDelegateTaskResult;
     const response: OrchestratorMcpDelegateTaskResult =
       endsTaskWait(result) || task.completionDelivery?.state === "disposed"
@@ -3787,6 +3804,18 @@ const make = Effect.gen(function* () {
         })
         .pipe(Effect.mapError(threadManagementFailure));
       const status = result.run === null ? "idle" : runOutcome(result.run);
+      const quotaExhausted =
+        result.run === null || status !== "failed"
+          ? null
+          : runQuotaExhausted(
+              result.run,
+              (yield* threadManagement
+                .getThreadRecords(input.threadId, ["turnItems"], {
+                  turnItemRunIds: [result.run.id],
+                  turnItemTypes: ["error"],
+                })
+                .pipe(Effect.mapError(threadManagementFailure))).turnItems,
+            );
       // A task's first run carries no task id; the child's untagged runs continue that task
       // until it has a result.
       const taskId =
@@ -3829,6 +3858,7 @@ const make = Effect.gen(function* () {
               resultRun: { runId: result.resultRun.id, status: runOutcome(result.resultRun) },
             }),
         ...(result.run?.output === undefined ? {} : { output: result.run.output.value }),
+        ...(quotaExhausted === null ? {} : { quotaExhausted }),
       } satisfies OrchestratorMcpThreadWaitResult;
     }),
     interruptThread: Effect.fn("OrchestratorMcpService.interruptThread")(function* (scope, input) {

@@ -9,6 +9,7 @@ import type {
 import {
   latestExecutedRun,
   latestRootProviderFailure,
+  runQuotaExhausted,
   orchestrationV2WorktreePending,
   runRanAfter,
   usageLimitBlockedRun,
@@ -62,6 +63,7 @@ import {
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2StoredEvent,
+  type OrchestrationV2QuotaExhausted,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
@@ -959,6 +961,15 @@ function legacyPullRequestLink(
 
 const DELEGATED_RESULT_INLINE_BYTES = 16_000;
 
+function quotaExhaustedNote(quota: OrchestrationV2QuotaExhausted): string {
+  const limit =
+    quota.window === undefined
+      ? "a usage limit"
+      : `its ${quota.window} limit${quota.modelScoped === true ? " for that model" : ""}`;
+  const resets = quota.resetsAt === null ? "" : `, resets ${quota.resetsAt}`;
+  return ` quota_exhausted: provider instance ${quota.providerInstanceId} hit ${limit} on ${quota.model}${resets}. Restart the work on another instance`;
+}
+
 function delegatedCompletionWakeDetail(
   taskIds: ReadonlyArray<string>,
   tasks: ReadonlyArray<OrchestrationV2Subagent>,
@@ -969,7 +980,8 @@ function delegatedCompletionWakeDetail(
       const task = tasks.find((candidate) => candidate.id === taskId);
       // A follow-up gets a fresh task id; the child thread links it to the task delegate_task returned.
       const thread = task?.childThreadId == null ? "" : ` in child thread ${task.childThreadId}`;
-      const label = `Delegated task ${taskId}${task?.title == null ? "" : ` (${task.title})`}${thread}${task === undefined ? " reached a terminal state" : ` [${task.status}]`}`;
+      const quota = task?.status === "failed" ? task.quotaExhausted : undefined;
+      const label = `Delegated task ${taskId}${task?.title == null ? "" : ` (${task.title})`}${thread}${task === undefined ? " reached a terminal state" : ` [${task.status}]`}${quota === undefined ? "" : quotaExhaustedNote(quota)}`;
       if (task?.result != null) {
         const detail = `${label}:\n${task.result}`;
         const bytes = Buffer.byteLength(detail);
@@ -15217,11 +15229,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentTurnItem = parentTask.turnItems.find(
         (candidate) => candidate.type === "subagent" && candidate.subagentId === task.id,
       );
+      const quotaExhausted = runQuotaExhausted(
+        { ...childRun, status: outcome },
+        childResult.turnItems,
+      );
+      // An earlier limited run's mark does not outlive the run that settles the task now.
+      const { quotaExhausted: _earlier, ...settledTask } = task;
       const updatedTask: OrchestrationV2Subagent = {
-        ...task,
+        ...settledTask,
         providerThreadId: childRun.providerThreadId,
         status: terminalStatus,
         result: result.text,
+        ...(quotaExhausted === null ? {} : { quotaExhausted }),
         completedAt: now,
         updatedAt: now,
         // The cancelling parent gets no wake, and the task records the run it settled from.

@@ -8886,6 +8886,27 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.each([
+    ["the session window", [["five_hour", "2026-10-12T12:00:00.000Z"]], { kind: "session" }],
+    ["the weekly window", [["seven_day", null]], { kind: "weekly" }],
+    [
+      "a model's weekly allowance",
+      [["seven_day_opus", "2026-10-14T12:00:00.000Z"]],
+      { kind: "weekly", modelScoped: true },
+    ],
+    [
+      "the window that refills last",
+      [
+        ["five_hour", "2026-10-12T12:00:00.000Z"],
+        ["seven_day", "2026-10-14T12:00:00.000Z"],
+      ],
+      { kind: "weekly" },
+    ],
+    ["no window for a type it does not know", [["future_window", null]], undefined],
+  ] as const)("names %s as the limit a rejected turn hit", (_name, rejected, window) => {
+    assert.deepEqual(ClaudeAdapterV2.claudeLimitWindow(rejected), window);
+  });
+
   it.effect("keeps a later future-window event-supplied Claude reset over the embedded reset", () =>
     Effect.gen(function* () {
       const harness = yield* makeWakeHarness;
@@ -17829,6 +17850,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         if (terminal === undefined || terminal.status !== "failed") return;
         assert.equal(terminal.failure.class, "usage_limit");
         assert.equal(terminal.failure.resetAt, "2026-09-25T01:10:00.000Z");
+        assert.deepEqual(terminal.failure.limitWindow, { kind: "session" });
         if (standaloneEvent) {
           const pause = yield* Queue.take(harness.systemNoticeReceipts);
           assert.equal(pause.turnItem.type, "system_notice");
