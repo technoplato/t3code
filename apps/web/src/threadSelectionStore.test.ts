@@ -111,4 +111,25 @@ describe("threadSelectionStore", () => {
       expect(state.selectedThreadKeys.size).toBe(4);
     });
   });
+
+  describe("selectionMode", () => {
+    it("enters selection mode with an initial thread and clears cleanly", () => {
+      const store = useThreadSelectionStore.getState();
+      store.enterSelectionMode(THREAD_B);
+      let state = useThreadSelectionStore.getState();
+      expect(state.selectionMode).toBe(true);
+      expect([...state.selectedThreadKeys]).toEqual([THREAD_B]);
+      expect(state.anchorThreadKey).toBe(THREAD_B);
+
+      store.selectThreads([THREAD_A, THREAD_C]);
+      state = useThreadSelectionStore.getState();
+      expect([...state.selectedThreadKeys]).toEqual([THREAD_A, THREAD_C]);
+
+      store.clearSelection();
+      state = useThreadSelectionStore.getState();
+      expect(state.selectionMode).toBe(false);
+      expect(state.selectedThreadKeys.size).toBe(0);
+      expect(state.anchorThreadKey).toBeNull();
+    });
+  });
 });

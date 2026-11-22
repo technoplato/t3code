@@ -79,4 +79,15 @@ describe("buildThreadActionMenuItems", () => {
     const items = buildThreadActionMenuItems({ ...baseState, canRename: false });
     expect(items.filter((item) => item.disabled).map((item) => item.id)).toEqual(["rename"]);
   });
+
+  it("includes Select when selectable and keeps it enabled without operate access", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      canOperate: false,
+      canSelect: true,
+    });
+    const selectItem = items.find((item) => item.id === "select");
+    expect(selectItem).toBeDefined();
+    expect(selectItem?.disabled).not.toBe(true);
+  });
 });

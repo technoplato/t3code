@@ -3,9 +3,12 @@ import { create } from "zustand";
 export interface ThreadSelectionState {
   selectedThreadKeys: ReadonlySet<string>;
   anchorThreadKey: string | null;
+  selectionMode: boolean;
 }
 
 interface ThreadSelectionStore extends ThreadSelectionState {
+  enterSelectionMode: (threadKey?: string) => void;
+  selectThreads: (threadKeys: readonly string[]) => void;
   toggleThread: (threadKey: string) => void;
   /** Requires ordered scoped thread keys from the same project. */
   rangeSelectTo: (threadKey: string, orderedThreadKeys: readonly string[]) => void;
@@ -28,6 +31,33 @@ export function getThreadKeysToDeselectAfterDelete(
 export const useThreadSelectionStore = create<ThreadSelectionStore>((set, get) => ({
   selectedThreadKeys: EMPTY_SET,
   anchorThreadKey: null,
+  selectionMode: false,
+
+  enterSelectionMode: (threadKey) => {
+    set((state) => {
+      if (threadKey === undefined) {
+        return state.selectionMode ? state : { ...state, selectionMode: true };
+      }
+      const next = new Set(state.selectedThreadKeys);
+      next.add(threadKey);
+      return {
+        selectedThreadKeys: next,
+        anchorThreadKey: threadKey,
+        selectionMode: true,
+      };
+    });
+  },
+
+  selectThreads: (threadKeys) => {
+    set((state) => {
+      const next = new Set(threadKeys);
+      return {
+        selectedThreadKeys: next,
+        anchorThreadKey: threadKeys[0] ?? state.anchorThreadKey,
+        selectionMode: state.selectionMode || next.size > 0,
+      };
+    });
+  },
 
   toggleThread: (threadKey) => {
     set((state) => {
@@ -76,8 +106,14 @@ export const useThreadSelectionStore = create<ThreadSelectionStore>((set, get) =
 
   clearSelection: () => {
     const state = get();
-    if (state.selectedThreadKeys.size === 0 && state.anchorThreadKey === null) return;
-    set({ selectedThreadKeys: EMPTY_SET, anchorThreadKey: null });
+    if (
+      state.selectedThreadKeys.size === 0 &&
+      state.anchorThreadKey === null &&
+      !state.selectionMode
+    ) {
+      return;
+    }
+    set({ selectedThreadKeys: EMPTY_SET, anchorThreadKey: null, selectionMode: false });
   },
 
   setAnchor: (threadKey) => {

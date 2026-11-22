@@ -29,6 +29,9 @@ import { useProjects } from "../../state/entities";
 import { steadyNavigationThreadShellsAtom } from "../../state/threads";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
+import { resolveBulkThreadActionTargets } from "./threadMultiSelect";
+import { ThreadSelectionActionBar } from "./ThreadSelectionActionBar";
+import { useThreadMultiSelect } from "./useThreadMultiSelect";
 import { useThreadListNow } from "./use-thread-list-now";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/presentation";
@@ -143,6 +146,12 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     snoozeThread,
     unsnoozeThread,
     unsettleThread,
+    snoozeThreads,
+    unsnoozeThreads,
+    settleThreads,
+    unsettleThreads,
+    markThreadsUnread,
+    confirmDeleteThreads,
     pinThread,
     unpinThread,
     setThreadAutoSettle,
@@ -150,6 +159,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     renameThread,
     regenerateThreadTitle,
   } = useThreadListActions();
+  const multiSelect = useThreadMultiSelect();
   const pendingTasks = usePendingNewTasks();
   const launchingThreads = useLaunchingThreads(threads);
   const activeNewTask = useActiveNewTask();
@@ -360,6 +370,44 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     onScroll: onFabScroll,
     onScrollBeginDrag: handleScrollBeginDrag,
   });
+  const visibleThreadKeys = useMemo(
+    () =>
+      threadListV2Items.flatMap((item) =>
+        item.type === "v2-thread"
+          ? [scopedThreadKey(item.item.thread.environmentId, item.item.thread.id)]
+          : [],
+      ),
+    [threadListV2Items],
+  );
+  const bulkTargets = useMemo(
+    () =>
+      resolveBulkThreadActionTargets({
+        threads: launchingThreads,
+        selectedKeys: multiSelect.selectedKeys,
+        now,
+        snoozeEnvironmentIds,
+        settlementEnvironmentIds,
+      }),
+    [
+      launchingThreads,
+      multiSelect.selectedKeys,
+      now,
+      settlementEnvironmentIds,
+      snoozeEnvironmentIds,
+    ],
+  );
+  const bulkSnoozePresetEnvId =
+    bulkTargets.snoozableThreads[0]?.environmentId ??
+    bulkTargets.selectedThreads[0]?.environmentId ??
+    options.selectedEnvironmentId;
+  const bulkSnoozePresets =
+    bulkSnoozePresetEnvId != null
+      ? snoozePresetsByEnvironmentId.get(bulkSnoozePresetEnvId)
+      : undefined;
+  const handleToggleMultiSelect = (thread: EnvironmentThreadShell) =>
+    multiSelect.toggleThreadKey(scopedThreadKey(thread.environmentId, thread.id));
+  const handleStartMultiSelect = (thread: EnvironmentThreadShell) =>
+    multiSelect.enterSelectionMode(scopedThreadKey(thread.environmentId, thread.id));
   // Recycle equality needs project/search data for titles and favicons; keep the minute clock on items to limit updates.
   const listExtraData = {
     activeNewTask,
@@ -371,6 +419,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     threadSearchMatchByKey,
     workingShelfEnabled,
     inboxSortOrder,
+    multiSelectActive: multiSelect.selectionMode,
+    multiSelectedKeys: multiSelect.selectedKeys,
   };
   useThreadJumpShortcuts(listItems, handleSelectThread, props.onOpenPendingTask);
   const sidebarItemsAreEqual = (previous: SidebarListItem, item: SidebarListItem): boolean => {
@@ -491,6 +541,12 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             onMoveThread={moveThread}
             onSwipeableClose={handleSwipeableClose}
             onSwipeableWillOpen={handleSwipeableWillOpen}
+            multiSelectActive={multiSelect.selectionMode}
+            multiSelected={multiSelect.selectedKeys.has(
+              scopedThreadKey(thread.environmentId, thread.id),
+            )}
+            onToggleMultiSelect={handleToggleMultiSelect}
+            onStartMultiSelect={handleStartMultiSelect}
             simultaneousSwipeGesture={sidebarScrollGesture}
           />
         );
@@ -566,6 +622,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             onEnvironmentChange: setSelectedEnvironmentId,
             onProjectChange: setSelectedProjectKey,
             onInboxSortOrderChange: setInboxSortOrder,
+            onStartMultiSelect: () => multiSelect.enterSelectionMode(),
           },
           messages,
         ),
@@ -657,7 +714,22 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
               />
             </GestureDetector>
           </SwipeableScrollGateProvider>
-          <ThreadUndoNotice visible={props.visible} />
+          <ThreadUndoNotice visible={props.visible && !multiSelect.selectionMode} />
+          <ThreadSelectionActionBar
+            visible={props.visible && multiSelect.selectionMode}
+            targets={bulkTargets}
+            allVisibleThreadKeys={visibleThreadKeys}
+            snoozePresets={bulkSnoozePresets}
+            snoozePresetMinute={now}
+            onSelectAll={multiSelect.selectThreadKeys}
+            onSnoozeThreads={snoozeThreads}
+            onUnsnoozeThreads={unsnoozeThreads}
+            onSettleThreads={settleThreads}
+            onUnsettleThreads={unsettleThreads}
+            onMarkThreadsUnread={markThreadsUnread}
+            onDeleteThreads={confirmDeleteThreads}
+            onExit={multiSelect.exitSelectionMode}
+          />
         </View>
       </>
     );
@@ -713,7 +785,22 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
         )}
       </View>
       {header}
-      <ThreadUndoNotice visible={props.visible} />
+      <ThreadUndoNotice visible={props.visible && !multiSelect.selectionMode} />
+      <ThreadSelectionActionBar
+        visible={props.visible && multiSelect.selectionMode}
+        targets={bulkTargets}
+        allVisibleThreadKeys={visibleThreadKeys}
+        snoozePresets={bulkSnoozePresets}
+        snoozePresetMinute={now}
+        onSelectAll={multiSelect.selectThreadKeys}
+        onSnoozeThreads={snoozeThreads}
+        onUnsnoozeThreads={unsnoozeThreads}
+        onSettleThreads={settleThreads}
+        onUnsettleThreads={unsettleThreads}
+        onMarkThreadsUnread={markThreadsUnread}
+        onDeleteThreads={confirmDeleteThreads}
+        onExit={multiSelect.exitSelectionMode}
+      />
     </View>
   );
 }

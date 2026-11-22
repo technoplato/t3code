@@ -43,6 +43,7 @@ export function buildHomeListFilterMenuItems(
     readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
     readonly onProjectChange: (projectKey: string | null) => void;
     readonly onInboxSortOrderChange?: (sortOrder: SidebarInboxSortOrder) => void;
+    readonly onStartMultiSelect?: () => void;
   },
   resolve: MessageResolver = m,
 ): AppBarMenuItem[] {
@@ -115,6 +116,16 @@ export function buildHomeListFilterMenuItems(
           onPress: () => onSortChange("longest_waiting"),
         },
       ],
+    });
+  }
+
+  if (props.onStartMultiSelect) {
+    const onStartMultiSelect = props.onStartMultiSelect;
+    items.push({
+      id: "select-threads",
+      title: resolve(msg("Select threads")),
+      icon: "checkmark.circle",
+      onPress: onStartMultiSelect,
     });
   }
 

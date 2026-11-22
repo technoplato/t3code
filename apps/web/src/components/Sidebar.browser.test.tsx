@@ -24,9 +24,15 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
-import { useProjects, useServerConfigs, useQuietThreadShells } from "../state/entities";
+import {
+  readEnvironmentServerConfigLoaded,
+  useProjects,
+  useServerConfigs,
+  useQuietThreadShells,
+} from "../state/entities";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
+import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { readLocalApi } from "../localApi";
 import type { Project } from "../types";
@@ -552,6 +558,96 @@ describe("sidebar inbox sort", () => {
     await vi.waitFor(() => {
       expect(getClientSettings().sidebarInboxSortOrder).toBe("longest_waiting");
       expect(renderedTitles()).toEqual(["Older done", "Newer done"]);
+    });
+  });
+});
+
+describe("sidebar multi-select bulk actions", () => {
+  it("enters selection mode from the header menu, toggles multiple threads, and snoozes them at once", async () => {
+    using stack = new DisposableStack();
+    const previousSettings = getClientSettings();
+    stack.defer(() => __setClientSettingsForTests(previousSettings));
+    stack.defer(() => useThreadSelectionStore.getState().clearSelection());
+    const activeProject = project("active");
+    const first = makeThreadFixture({
+      environmentId: activeProject.environmentId,
+      projectId: activeProject.id,
+      id: ThreadId.make("multi-first"),
+      title: "First chat",
+      runtime: null,
+    });
+    const second = makeThreadFixture({
+      environmentId: activeProject.environmentId,
+      projectId: activeProject.id,
+      id: ThreadId.make("multi-second"),
+      title: "Second chat",
+      runtime: null,
+    });
+    const runCommand = vi.fn().mockResolvedValue({ _tag: "Success", value: undefined });
+    vi.mocked(useOrchestrationCommand).mockReturnValue(runCommand);
+    vi.mocked(readEnvironmentServerConfigLoaded).mockReturnValue(true);
+    stack.defer(() => vi.mocked(readEnvironmentServerConfigLoaded).mockReset());
+    vi.mocked(readEnvironmentScope).mockReturnValue(true);
+    vi.mocked(useEnvironmentScope).mockReturnValue(true);
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      sidebarWorkingShelfEnabled: true,
+      sidebarInboxSortOrder: "recent",
+    });
+    vi.mocked(useProjects).mockReturnValue([activeProject]);
+    vi.mocked(useQuietThreadShells).mockReturnValue([first, second]);
+    vi.mocked(useThreadRouteTarget).mockReturnValue(null);
+    vi.mocked(useHandleNewThread).mockReturnValue({
+      activeDraftThread: null,
+      activeThread: null,
+      defaultProjectRef: {
+        environmentId: activeProject.environmentId,
+        projectId: activeProject.id,
+      },
+      defaultProjectFallbackReady: true,
+      handleNewThread: vi.fn().mockResolvedValue(null),
+      routeDraftId: null,
+      routeThreadRef: null,
+    });
+    vi.mocked(useServerConfigs).mockReturnValue(
+      new Map([
+        [
+          activeProject.environmentId,
+          {
+            scratchWorkspaceRoot: null,
+            shellThreadFamilies: false,
+          } as unknown as EnvironmentServerConfig,
+        ],
+      ]),
+    );
+
+    await using screen = await render(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Sort inbox: Recently done" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Select threads" }));
+
+    await expect.element(screen.getByTestId("sidebar-selection-bar")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("First chat").first());
+    await userEvent.click(screen.getByText("Second chat").first());
+
+    await expect.element(screen.getByText("2 selected")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Snooze selected threads" }));
+    const presetItems = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(
+      (item) => !item.textContent?.includes("Custom"),
+    );
+    expect(presetItems.length).toBeGreaterThan(0);
+    await userEvent.click(presetItems[0]!);
+
+    await vi.waitFor(() => {
+      expect(runCommand).toHaveBeenCalledTimes(2);
+      expect(useThreadSelectionStore.getState().selectionMode).toBe(false);
+      expect(useThreadSelectionStore.getState().selectedThreadKeys.size).toBe(0);
     });
   });
 });

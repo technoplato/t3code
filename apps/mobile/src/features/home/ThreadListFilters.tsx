@@ -1,7 +1,9 @@
 import { useGT } from "gt-react-native";
 import { Pressable, ScrollView } from "react-native";
 import { SymbolView } from "../../components/ui/AppSymbol";
+import { Chip } from "../../components/ui/Chip";
 import { ListFilterMenu } from "../layout/workspace/ListFilterMenu";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { SidebarInboxSortOrder } from "@t3tools/contracts/settings";
 import type {
@@ -16,13 +18,16 @@ export function ThreadListFilters(props: {
   readonly selectedProjectKey: string | null;
   readonly inboxSortOrder: SidebarInboxSortOrder;
   readonly workingShelfEnabled: boolean;
+  readonly selectionMode?: boolean;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onInboxSortOrderChange: (sortOrder: SidebarInboxSortOrder) => void;
+  readonly onStartMultiSelect?: () => void;
   /** List padding the scroller bleeds through so pills start where row content does. */
   readonly gutter: number;
 }) {
   const gt = useGT();
+  const { themeAppearance } = useAppearancePreferences();
   const selectedEnvironment = props.environments.find(
     (environment) => environment.environmentId === props.selectedEnvironmentId,
   );
@@ -116,6 +121,21 @@ export function ThreadListFilters(props: {
           }
         }}
       />
+      {props.onStartMultiSelect && !props.selectionMode ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={gt("Select threads")}
+          hitSlop={6}
+          onPress={props.onStartMultiSelect}
+        >
+          <Chip
+            label={gt("Select", { $context: "verb, start selecting multiple threads" })}
+            icon="checkmark.circle"
+            glass
+            colorScheme={themeAppearance}
+          />
+        </Pressable>
+      ) : null}
       {props.selectedEnvironmentId !== null ||
       props.selectedProjectKey !== null ||
       props.inboxSortOrder !== "recent" ? (

@@ -90,6 +90,9 @@ import {
   type ThreadListV2ListItem,
 } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
+import { resolveBulkThreadActionTargets } from "../threads/threadMultiSelect";
+import { ThreadSelectionActionBar } from "../threads/ThreadSelectionActionBar";
+import type { ThreadMultiSelectController } from "../threads/useThreadMultiSelect";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   buildHomeProjectScopes,
@@ -137,6 +140,19 @@ interface HomeScreenProps {
   ) => Promise<boolean>;
   readonly onUnsnoozeThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly onUnsettleThread: (thread: EnvironmentThreadShell) => void;
+  readonly multiSelect: ThreadMultiSelectController;
+  readonly onSnoozeThreads: (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+    snoozedUntil: string,
+  ) => Promise<number>;
+  readonly onUnsnoozeThreads: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly onSettleThreads: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly onUnsettleThreads: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly onMarkThreadsUnread: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly onDeleteThreads: (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+    onConfirmed?: () => void,
+  ) => void;
   readonly onPinThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly onUnpinThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly onSetThreadAutoSettle: (
@@ -446,7 +462,39 @@ export function HomeScreen(props: HomeScreenProps) {
   });
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
   // props object, which is new on every render of Home's parent.
-  const { onSelectThread } = props;
+  const { onSelectThread, multiSelect } = props;
+  const visibleThreadKeys = useMemo(
+    () =>
+      threadListV2Items.flatMap((item) =>
+        item.type === "v2-thread"
+          ? [scopedThreadKey(item.item.thread.environmentId, item.item.thread.id)]
+          : [],
+      ),
+    [threadListV2Items],
+  );
+  const bulkTargets = useMemo(
+    () =>
+      resolveBulkThreadActionTargets({
+        threads: props.threads,
+        selectedKeys: multiSelect.selectedKeys,
+        now,
+        snoozeEnvironmentIds,
+        settlementEnvironmentIds,
+      }),
+    [multiSelect.selectedKeys, now, props.threads, settlementEnvironmentIds, snoozeEnvironmentIds],
+  );
+  const bulkSnoozePresetEnvId =
+    bulkTargets.snoozableThreads[0]?.environmentId ??
+    bulkTargets.selectedThreads[0]?.environmentId ??
+    props.selectedEnvironmentId;
+  const bulkSnoozePresets =
+    bulkSnoozePresetEnvId != null
+      ? snoozePresetsByEnvironmentId.get(bulkSnoozePresetEnvId)
+      : undefined;
+  const handleToggleMultiSelect = (thread: EnvironmentThreadShell) =>
+    multiSelect.toggleThreadKey(scopedThreadKey(thread.environmentId, thread.id));
+  const handleStartMultiSelect = (thread: EnvironmentThreadShell) =>
+    multiSelect.enterSelectionMode(scopedThreadKey(thread.environmentId, thread.id));
   // A row listed for a message match opens the thread at that message, by
   // tap or by shortcut.
   const selectThread = (thread: EnvironmentThreadShell) => {
@@ -597,6 +645,12 @@ export function HomeScreen(props: HomeScreenProps) {
         onMoveThread={handleMoveThread}
         onSwipeableClose={handleSwipeableClose}
         onSwipeableWillOpen={handleSwipeableWillOpen}
+        multiSelectActive={multiSelect.selectionMode}
+        multiSelected={multiSelect.selectedKeys.has(
+          scopedThreadKey(thread.environmentId, thread.id),
+        )}
+        onToggleMultiSelect={handleToggleMultiSelect}
+        onStartMultiSelect={handleStartMultiSelect}
         simultaneousSwipeGesture={homeScrollGesture}
         activationKey={item.key}
       />
@@ -616,6 +670,8 @@ export function HomeScreen(props: HomeScreenProps) {
     threadSearchMatchByKey,
     workingShelfEnabled,
     inboxSortOrder,
+    multiSelectActive: multiSelect.selectionMode,
+    multiSelectedKeys: multiSelect.selectedKeys,
   };
 
   const hasAnyThreads =
@@ -707,9 +763,11 @@ export function HomeScreen(props: HomeScreenProps) {
           selectedProjectKey={props.selectedProjectKey}
           inboxSortOrder={inboxSortOrder}
           workingShelfEnabled={workingShelfEnabled}
+          selectionMode={multiSelect.selectionMode}
           onEnvironmentChange={props.onEnvironmentChange}
           onProjectChange={props.onProjectChange}
           onInboxSortOrderChange={setInboxSortOrder}
+          onStartMultiSelect={() => multiSelect.enterSelectionMode()}
         />
       ) : null}
     </>
@@ -844,6 +902,21 @@ export function HomeScreen(props: HomeScreenProps) {
           </SwipeableScrollGateProvider>
         </View>
       </ScreenContent>
+      <ThreadSelectionActionBar
+        visible={props.visible && multiSelect.selectionMode}
+        targets={bulkTargets}
+        allVisibleThreadKeys={visibleThreadKeys}
+        snoozePresets={bulkSnoozePresets}
+        snoozePresetMinute={now}
+        onSelectAll={multiSelect.selectThreadKeys}
+        onSnoozeThreads={props.onSnoozeThreads}
+        onUnsnoozeThreads={props.onUnsnoozeThreads}
+        onSettleThreads={props.onSettleThreads}
+        onUnsettleThreads={props.onUnsettleThreads}
+        onMarkThreadsUnread={props.onMarkThreadsUnread}
+        onDeleteThreads={props.onDeleteThreads}
+        onExit={multiSelect.exitSelectionMode}
+      />
     </View>
   );
 }

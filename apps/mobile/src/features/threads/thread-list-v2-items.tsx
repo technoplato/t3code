@@ -796,6 +796,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly activationKey?: string;
   readonly searchMatch?: EnvironmentThreadSearchMatch;
   readonly searchQuery?: string;
+  readonly multiSelectActive?: boolean;
+  readonly multiSelected?: boolean;
+  readonly onToggleMultiSelect?: (thread: EnvironmentThreadShell) => void;
+  readonly onStartMultiSelect?: (thread: EnvironmentThreadShell) => void;
   readonly simultaneousSwipeGesture?: ComponentProps<typeof ThreadSwipeable>["simultaneousWith"];
 }) {
   const { width: windowWidth, fontScale } = useWindowDimensions();
@@ -835,6 +839,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const dormant = useSwipeRowDormant(props.activationKey);
 
   const selectThread = () => onSelectThread(thread);
+  const multiSelectActive = props.multiSelectActive === true;
+  const multiSelected = multiSelectActive && props.multiSelected === true;
+  const onStartMultiSelect = props.onStartMultiSelect;
+  const onToggleMultiSelect = props.onToggleMultiSelect;
   const { providerDrivers, providerIconUrl } = useMemo(() => {
     const provider = props.providers?.find(
       (candidate) =>
@@ -1113,6 +1121,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       ...(canShareWithGuest
         ? [{ id: "share-guest", title: gt("Share with guest"), image: "person.badge.plus" }]
         : []),
+      ...(onStartMultiSelect
+        ? [
+            {
+              id: "select",
+              title: gt("Select", { $context: "verb, start selecting multiple threads" }),
+              image: "checkmark.circle",
+            },
+          ]
+        : []),
     ];
     if (snoozedRow) {
       return layoutThreadListV2RowMenuActions(
@@ -1201,12 +1218,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     snoozedRow,
     gt,
     m,
+    onStartMultiSelect,
     swipeActions.secondary,
     thread.branch,
     titleMenuItems,
   ]);
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      if (nativeEvent.event === "select") {
+        onStartMultiSelect?.(thread);
+        return;
+      }
       if (nativeEvent.event === "new-thread-on-branch") onNewThreadOnBranch(thread);
       if (nativeEvent.event === "settle") handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
@@ -1272,6 +1294,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       gt,
       m,
       onNewThreadOnBranch,
+      onStartMultiSelect,
       thread,
       navigation,
       handleArchive,
@@ -1363,10 +1386,30 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       ? primaryAction.swipeHint
       : primaryAction.swipeSnoozeHint;
 
-  const titleTextInset = props.project ? projectIconSize + 8 : 0;
+  const selectionIndicator = multiSelectActive ? (
+    <View className="justify-center" style={{ height: titleLineHeight }}>
+      <SymbolView
+        name={multiSelected ? "checkmark.circle.fill" : "circle"}
+        size={20}
+        tintColorClassName={
+          multiSelected
+            ? selected
+              ? selectedThreadRowColors.iconTintClassName
+              : "accent-primary"
+            : selected
+              ? selectedThreadRowColors.mutedIconTintClassName
+              : rowAppearance.mutedIconTintClassName
+        }
+        type="monochrome"
+      />
+    </View>
+  ) : null;
+
+  const titleTextInset = (props.project ? projectIconSize + 8 : 0) + (multiSelectActive ? 28 : 0);
   const cardContent = (
     <>
       <View className="flex-row items-start gap-2">
+        {selectionIndicator}
         {props.project ? (
           <View className="justify-center" style={{ height: titleLineHeight }}>
             <ProjectFavicon
@@ -1638,17 +1681,28 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         interactionClassName={rowAppearance.interactionClassName}
         interactionOpacity={rowAppearance.interactionOpacity}
         className={rowAppearance.className}
-        accessibilityHint={swipeAccessibilityHint}
+        accessibilityHint={
+          multiSelectActive
+            ? multiSelected
+              ? gt("Deselects this thread")
+              : gt("Selects this thread")
+            : swipeAccessibilityHint
+        }
         accessibilityLabel={rowAccessibilityLabel}
         accessibilityRole="button"
-        accessibilityState={{ selected }}
-        accessibilityActions={rowAccessibilityActions}
+        accessibilityState={{ selected: multiSelectActive ? multiSelected : selected }}
+        accessibilityActions={multiSelectActive ? [] : rowAccessibilityActions}
         onAccessibilityAction={(event) => {
+          if (multiSelectActive) return;
           if (event.nativeEvent.actionName === "openPullRequests") handleOpenPullRequests();
           if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
         }}
         onPress={() => {
           close();
+          if (multiSelectActive) {
+            onToggleMultiSelect?.(thread);
+            return;
+          }
           selectThread();
         }}
         style={rowAppearance.cardStyle}
@@ -1669,13 +1723,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         key={`${thread.environmentId}:${thread.id}`}
         interactionClassName={rowAppearance.interactionClassName}
         interactionOpacity={rowAppearance.interactionOpacity}
-        accessibilityHint={swipeAccessibilityHint}
+        accessibilityHint={
+          multiSelectActive
+            ? multiSelected
+              ? gt("Deselects this thread")
+              : gt("Selects this thread")
+            : swipeAccessibilityHint
+        }
         accessibilityLabel={rowAccessibilityLabel}
         accessibilityRole="button"
-        accessibilityState={{ selected }}
+        accessibilityState={{ selected: multiSelectActive ? multiSelected : selected }}
         className={rowAppearance.className}
         onPress={() => {
           close();
+          if (multiSelectActive) {
+            onToggleMultiSelect?.(thread);
+            return;
+          }
           selectThread();
         }}
         style={rowAppearance.style}
@@ -1687,6 +1751,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             sidebarPane && "px-3",
           )}
         >
+          {selectionIndicator}
           {props.project ? (
             <View className="opacity-40">
               <ProjectFavicon
@@ -1753,7 +1818,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </RowPressable>
     );
 
-  if (!canOperateThread)
+  if (!canOperateThread || multiSelectActive)
     return <View style={rowAppearance.swipeContainerStyle}>{rowContent(() => {})}</View>;
 
   return (

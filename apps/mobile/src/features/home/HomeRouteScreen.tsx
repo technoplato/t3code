@@ -41,6 +41,7 @@ import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspace
 import { WorkspaceListEmptyDetail } from "../layout/workspace/WorkspaceListEmptyDetail";
 import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
+import { useThreadMultiSelect } from "../threads/useThreadMultiSelect";
 import { buildHomeListFilterMenuItems, homeListFilterEnvironments } from "./home-list-filter-menu";
 
 export function HomeRouteScreen() {
@@ -99,6 +100,12 @@ export function HomeRouteScreen() {
     settleThread,
     snoozeThread,
     unsnoozeThread,
+    snoozeThreads,
+    unsnoozeThreads,
+    settleThreads,
+    unsettleThreads,
+    markThreadsUnread,
+    confirmDeleteThreads,
     pinThread,
     unpinThread,
     setThreadAutoSettle,
@@ -107,6 +114,7 @@ export function HomeRouteScreen() {
     regenerateThreadTitle,
     unsettleThread,
   } = useThreadListActions();
+  const multiSelect = useThreadMultiSelect();
   const pendingTasks = usePendingNewTasks();
   const { openPendingTask, confirmDeletePendingTask } =
     usePendingTaskListActions(selectThreadRoute);
@@ -191,6 +199,7 @@ export function HomeRouteScreen() {
                 onEnvironmentChange: setSelectedEnvironmentId,
                 onProjectChange: setSelectedProjectKey,
                 onInboxSortOrderChange: setInboxSortOrder,
+                onStartMultiSelect: () => multiSelect.enterSelectionMode(),
               },
               m,
             ),
@@ -200,6 +209,7 @@ export function HomeRouteScreen() {
         <HomeScreen
           catalogState={catalogState}
           environments={environments}
+          multiSelect={multiSelect}
           onAddConnection={() => openSettings(navigation, "SettingsEnvironmentNew")}
           onArchiveThread={archiveThread}
           onDeleteThread={confirmDeleteThread}
@@ -207,6 +217,12 @@ export function HomeRouteScreen() {
           onSnoozeThread={snoozeThread}
           onUnsnoozeThread={unsnoozeThread}
           onUnsettleThread={unsettleThread}
+          onSnoozeThreads={snoozeThreads}
+          onUnsnoozeThreads={unsnoozeThreads}
+          onSettleThreads={settleThreads}
+          onUnsettleThreads={unsettleThreads}
+          onMarkThreadsUnread={markThreadsUnread}
+          onDeleteThreads={confirmDeleteThreads}
           onPinThread={pinThread}
           onUnpinThread={unpinThread}
           onSetThreadAutoSettle={setThreadAutoSettle}
@@ -243,7 +259,7 @@ export function HomeRouteScreen() {
           threads={threads}
           visible={visible}
         />
-        <ThreadUndoNotice visible={visible} />
+        <ThreadUndoNotice visible={visible && !multiSelect.selectionMode} />
       </>
     </AndroidHomeFabLayout>
   );

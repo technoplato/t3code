@@ -62,3 +62,23 @@ it("includes a sort section for recently done vs longest waiting", () => {
   }
   expect(onInboxSortOrderChange).toHaveBeenCalledWith("recent");
 });
+
+it("includes a select-threads action when multi-select is wired", () => {
+  const onStartMultiSelect = vi.fn();
+  const items = buildHomeListFilterMenuItems({
+    environments: [{ environmentId: "env-desk" as EnvironmentId, label: "Desk" }],
+    projects: [],
+    selectedEnvironmentId: null,
+    selectedProjectKey: null,
+    onEnvironmentChange: () => undefined,
+    onProjectChange: () => undefined,
+    onStartMultiSelect,
+  });
+
+  const selectItem = items.find((item) => item.id === "select-threads");
+  expect(selectItem).toBeDefined();
+  if (selectItem && "onPress" in selectItem) {
+    selectItem.onPress();
+  }
+  expect(onStartMultiSelect).toHaveBeenCalledOnce();
+});

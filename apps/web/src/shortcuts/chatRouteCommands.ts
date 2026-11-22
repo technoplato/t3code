@@ -208,7 +208,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
       onKeyDown: (event) => {
         if (event.key !== "Escape") return false;
         const selection = useThreadSelectionStore.getState();
-        if (selection.selectedThreadKeys.size === 0) return false;
+        if (selection.selectedThreadKeys.size === 0 && !selection.selectionMode) return false;
         event.preventDefault();
         selection.clearSelection();
       },

@@ -74,10 +74,15 @@ import {
   ArrowUpNarrowWideIcon,
   CheckIcon,
   ChevronDownIcon,
+  CircleCheckIcon,
+  ClockIcon,
+  EllipsisIcon,
   FolderIcon,
   ListFilterIcon,
   PlusIcon,
   SettingsIcon,
+  SquareCheckIcon,
+  XIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -261,10 +266,12 @@ import {
   Menu,
   MenuGroup,
   MenuGroupLabel,
+  MenuItem,
   MenuItemDetail,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuSeparator,
   MenuTrigger,
 } from "./ui/menu";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
@@ -1035,9 +1042,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const { handleNewThread } = newThreadContext;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
+  const enterSelectionMode = useThreadSelectionStore((s) => s.enterSelectionMode);
+  const selectThreads = useThreadSelectionStore((s) => s.selectThreads);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
+  const selectionMode = useThreadSelectionStore((s) => s.selectionMode);
+  const selectedThreadKeysSet = useThreadSelectionStore((s) => s.selectedThreadKeys);
+  const [selectionSnoozeMenuOpenedAt, setSelectionSnoozeMenuOpenedAt] = useState<Date | null>(null);
   const acknowledgeWoke = useAcknowledgeThreadWoke();
   // A Settings or Usage modal keeps the thread behind it current.
   const routeTarget = useShownThreadRouteTarget().shownTarget;
@@ -1643,7 +1655,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       rangeSelectTo(threadKey, orderedThreadKeysRef.current);
       return;
     }
+    if (useThreadSelectionStore.getState().selectionMode) {
+      event.preventDefault();
+      toggleThreadSelection(threadKey);
+      return;
+    }
     if (isTrailingDoubleClick(event.detail)) {
+      return;
+    }
+    navigateToThread(threadRef);
+  };
+  const handleThreadActivate = (threadRef: ScopedThreadRef) => {
+    if (useThreadSelectionStore.getState().selectionMode) {
+      toggleThreadSelection(scopedThreadKey(threadRef));
       return;
     }
     navigateToThread(threadRef);
@@ -2363,6 +2387,165 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  const snoozeBulkThreads = async (
+    targetThreads: readonly EnvironmentThreadShell[],
+    preset: Pick<SnoozePreset, "snoozedUntil">,
+  ) => {
+    if (targetThreads.length === 0 || !checkThreadOperations(targetThreads)) return;
+    const coSnoozingKeys = new Set(targetThreads.map(threadShellKey));
+    clearSelection();
+    const outcomes = await Promise.all(
+      targetThreads.map(async (thread) => {
+        const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+        const outcome = await performSnooze(threadRef, preset, { coSnoozingKeys });
+        return { outcome, threadRef };
+      }),
+    );
+    const snoozedThreadRefs = outcomes.flatMap(({ outcome, threadRef }) =>
+      outcome.status === "success" ? [threadRef] : [],
+    );
+    const failures = outcomes.flatMap(({ outcome }) =>
+      outcome.status === "failure" ? [outcome.error] : [],
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0];
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title:
+            snoozedThreadRefs.length > 0
+              ? gt(
+                  "{count, plural, one {Failed to snooze {count} thread} other {Failed to snooze {count} threads}}",
+                  { count: failures.length },
+                )
+              : gt("Failed to snooze threads"),
+          description: thrownErrorMessage(firstError, m) ?? gt("An error occurred."),
+        }),
+      );
+    }
+  };
+
+  const unsnoozeBulkThreads = (targetThreads: readonly EnvironmentThreadShell[]) => {
+    if (targetThreads.length === 0 || !checkThreadOperations(targetThreads)) return;
+    clearSelection();
+    for (const thread of targetThreads) {
+      attemptUnsnooze(scopeThreadRef(thread.environmentId, thread.id));
+    }
+  };
+
+  const settleBulkThreads = (targetThreads: readonly EnvironmentThreadShell[]) => {
+    const liveTargets = targetThreads.flatMap((thread) => {
+      const current = threadByKeyRef.current.get(
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      );
+      return current && current.settledOverride !== "settled" ? [current] : [];
+    });
+    if (liveTargets.length === 0 || !checkThreadOperations(liveTargets)) return;
+    settleThreads(
+      liveTargets.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+    );
+    clearSelection();
+  };
+
+  const unsettleBulkThreads = (targetThreads: readonly EnvironmentThreadShell[]) => {
+    if (targetThreads.length === 0 || !checkThreadOperations(targetThreads)) return;
+    clearSelection();
+    for (const thread of targetThreads) {
+      attemptUnsettle(scopeThreadRef(thread.environmentId, thread.id));
+    }
+  };
+
+  const unpinBulkThreads = (targetThreads: readonly EnvironmentThreadShell[]) => {
+    if (targetThreads.length === 0 || !checkThreadOperations(targetThreads)) return;
+    for (const thread of targetThreads) {
+      attemptUnpin(scopeThreadRef(thread.environmentId, thread.id));
+    }
+    clearSelection();
+  };
+
+  const markBulkThreadsUnread = (targetThreads: readonly EnvironmentThreadShell[]) => {
+    if (targetThreads.length === 0) return;
+    for (const thread of targetThreads) {
+      markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
+    }
+    clearSelection();
+  };
+
+  const regenerateBulkThreadTitles = async (targetThreads: readonly EnvironmentThreadShell[]) => {
+    if (targetThreads.length === 0 || !checkThreadOperations(targetThreads)) return;
+    clearSelection();
+    const toast = titleRegenerationToast(
+      await Promise.all(
+        targetThreads.map((thread) =>
+          regenerateThreadTitle({
+            environmentId: thread.environmentId,
+            input: { threadId: thread.id },
+          }),
+        ),
+      ),
+    );
+    if (toast) toastManager.add(toast);
+  };
+
+  const deleteBulkThreads = async (
+    targetThreadKeys: readonly string[],
+    selectedKeysSnapshot: readonly string[],
+  ) => {
+    if (targetThreadKeys.length === 0) return;
+    const api = readLocalApi();
+    if (!api) return;
+    const count = targetThreadKeys.length;
+    if (confirmThreadDelete) {
+      const confirmed = await settlePromise(() =>
+        api.dialogs.confirm(
+          [
+            gt("{count, plural, one {Delete {count} thread?} other {Delete {count} threads?}}", {
+              count,
+            }),
+            gt("This permanently clears conversation history for these threads."),
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (confirmed._tag === "Failure" || !confirmed.value) return;
+    }
+    if (
+      !checkThreadOperations(
+        targetThreadKeys.flatMap((threadKey) => {
+          const thread = threadByKeyRef.current.get(threadKey);
+          return thread ? [thread] : [];
+        }),
+      )
+    )
+      return;
+    const { deletedThreadKeys, firstFailure } = await deleteSelectedThreadEntries({
+      entries: targetThreadKeys.map((threadKey) => ({ threadKey })),
+      delete: async ({ threadKey }, deletedThreadKeys) => {
+        const thread = threadByKeyRef.current.get(threadKey);
+        if (!thread) return null;
+        return deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
+          deletedThreadKeys,
+        });
+      },
+    });
+    if (firstFailure !== null) {
+      const firstError = squashAtomCommandFailure(firstFailure);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: gt("Failed to delete threads"),
+          description: thrownErrorMessage(firstError, m) ?? gt("An error occurred."),
+        }),
+      );
+    }
+    removeFromSelection(
+      getThreadKeysToDeselectAfterDelete(selectedKeysSnapshot, deletedThreadKeys, (threadKey) => {
+        const threadRef = parseScopedThreadKey(threadKey);
+        return threadRef !== null && readThreadShell(threadRef) !== null;
+      }),
+    );
+  };
+
   const handleMultiSelectContextMenu = useStableCallback(
     async (position: { x: number; y: number }, source: ContextMenuSource) => {
       const api = readLocalApi();
@@ -2379,12 +2562,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return thread ? [thread] : [];
       });
       const settlingThreads = selectedThreads.filter(
-        (thread) => thread.settledOverride !== "settled",
+        (thread) => serverConfigs.has(thread.environmentId) && thread.settledOverride !== "settled",
       );
-      const canSnoozeSelection = selectedThreads.every(
+      const unsettlableThreads = selectedThreads.filter(
         (thread) =>
           serverConfigs.has(thread.environmentId) &&
+          settledThreadKeysRef.current.has(threadShellKey(thread)),
+      );
+      const snoozableThreads = selectedThreads.filter(
+        (thread) =>
+          serverConfigs.has(thread.environmentId) &&
+          !snoozedThreadKeysRef.current.has(threadShellKey(thread)) &&
           canSnooze(thread, { now: selectionNow.toISOString() }),
+      );
+      const unsnoozableThreads = selectedThreads.filter(
+        (thread) =>
+          serverConfigs.has(thread.environmentId) &&
+          snoozedThreadKeysRef.current.has(threadShellKey(thread)),
       );
       const titleRegenerationThreads = selectedThreads.filter((thread) =>
         serverConfigs.has(thread.environmentId),
@@ -2402,12 +2596,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
-      // Presets sync across environments, so the first selected thread's stand for all.
+      // Presets sync across environments, so the first snoozable thread's stand for all.
       const menuOpenedAt = new Date();
+      const snoozePresetEnvironmentId =
+        snoozableThreads[0]?.environmentId ?? selectedThreads[0]!.environmentId;
       const snoozePresets = resolveSnoozePresets(
         menuOpenedAt,
         timestampFormat,
-        selectedThreads[0]!.environmentId,
+        snoozePresetEnvironmentId,
       );
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
@@ -2417,29 +2613,49 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               : []),
             {
               id: "settle",
-              label: gt("Settle ({count})", { count }),
+              label: gt("Settle ({count})", {
+                count: settlingThreads.length > 0 ? settlingThreads.length : count,
+              }),
               disabled: settlingThreads.length === 0 || !canOperateThreads(settlingThreads),
             },
-            ...(canSnoozeSelection
+            ...(unsettlableThreads.length > 0
+              ? [
+                  {
+                    id: "unsettle",
+                    label: gt("Un-settle ({count})", { count: unsettlableThreads.length }),
+                    disabled: !canOperateThreads(unsettlableThreads),
+                  },
+                ]
+              : []),
+            ...(snoozableThreads.length > 0
               ? [
                   {
                     id: "snooze",
-                    label: gt("Snooze ({count})", { count }),
-                    disabled: !canOperateThreads(selectedThreads),
+                    label: gt("Snooze ({count})", { count: snoozableThreads.length }),
+                    disabled: !canOperateThreads(snoozableThreads),
                     children: [
                       ...snoozePresets.map((preset) => ({
                         id: `snooze:${preset.id}`,
                         label: preset.label,
                         detail: preset.whenLabel,
-                        disabled: !canOperateThreads(selectedThreads),
+                        disabled: !canOperateThreads(snoozableThreads),
                       })),
                       {
                         id: "snooze:custom",
                         label: gt("Custom…"),
                         separatorBefore: snoozePresets.length > 0,
-                        disabled: !canOperateThreads(selectedThreads),
+                        disabled: !canOperateThreads(snoozableThreads),
                       },
                     ],
+                  },
+                ]
+              : []),
+            ...(unsnoozableThreads.length > 0
+              ? [
+                  {
+                    id: "unsnooze",
+                    label: gt("Wake ({count})", { count: unsnoozableThreads.length }),
+                    disabled: !canOperateThreads(unsnoozableThreads),
                   },
                 ]
               : []),
@@ -2466,22 +2682,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
-      const actionTargets =
-        clicked.value === "unpin"
-          ? pinnedSelectedThreads
-          : clicked.value === "regenerate-title"
-            ? regeneratableTitleThreads
-            : clicked.value === "settle"
-              ? settlingThreads.flatMap((thread) => {
-                  const current = threadByKeyRef.current.get(
-                    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-                  );
-                  return current && current.settledOverride !== "settled" ? [current] : [];
-                })
-              : selectedThreads;
-      if (clicked.value === "settle" && actionTargets.length === 0) return;
-      if (clicked.value !== "mark-unread" && !checkThreadOperations(actionTargets)) return;
-      if (clicked.value?.startsWith("snooze:")) {
+      if (clicked.value.startsWith("snooze:")) {
+        if (!checkThreadOperations(snoozableThreads)) return;
         const preset =
           clicked.value === "snooze:custom"
             ? await requestCustomSnooze()
@@ -2489,133 +2691,39 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 snoozePresets,
                 clicked.value.slice("snooze:".length),
                 timestampFormat,
-                selectedThreads[0]!.environmentId,
+                snoozePresetEnvironmentId,
               );
         if (preset) {
-          const coSnoozingKeys = new Set(threadKeys);
-          clearSelection();
-          const outcomes = await Promise.all(
-            selectedThreads.map(async (thread) => {
-              const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-              const outcome = await performSnooze(threadRef, preset, { coSnoozingKeys });
-              return { outcome, threadRef };
-            }),
-          );
-          const snoozedThreadRefs = outcomes.flatMap(({ outcome, threadRef }) =>
-            outcome.status === "success" ? [threadRef] : [],
-          );
-          const failures = outcomes.flatMap(({ outcome }) =>
-            outcome.status === "failure" ? [outcome.error] : [],
-          );
-
-          if (failures.length > 0) {
-            const firstError = failures[0];
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title:
-                  snoozedThreadRefs.length > 0
-                    ? gt(
-                        "{count, plural, one {Failed to snooze {count} thread} other {Failed to snooze {count} threads}}",
-                        { count: failures.length },
-                      )
-                    : gt("Failed to snooze threads"),
-                description: thrownErrorMessage(firstError, m) ?? gt("An error occurred."),
-              }),
-            );
-          }
+          await snoozeBulkThreads(snoozableThreads, preset);
         }
+        return;
+      }
+      if (clicked.value === "unsnooze") {
+        unsnoozeBulkThreads(unsnoozableThreads);
         return;
       }
       if (clicked.value === "unpin") {
-        for (const thread of pinnedSelectedThreads) {
-          attemptUnpin(scopeThreadRef(thread.environmentId, thread.id));
-        }
-        clearSelection();
+        unpinBulkThreads(pinnedSelectedThreads);
         return;
       }
       if (clicked.value === "regenerate-title") {
-        clearSelection();
-        const toast = titleRegenerationToast(
-          await Promise.all(
-            regeneratableTitleThreads.map((thread) =>
-              regenerateThreadTitle({
-                environmentId: thread.environmentId,
-                input: { threadId: thread.id },
-              }),
-            ),
-          ),
-        );
-        if (toast) toastManager.add(toast);
+        await regenerateBulkThreadTitles(regeneratableTitleThreads);
         return;
       }
       if (clicked.value === "settle") {
-        settleThreads(
-          actionTargets.map((thread) =>
-            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          ),
-        );
-        clearSelection();
+        settleBulkThreads(settlingThreads);
+        return;
+      }
+      if (clicked.value === "unsettle") {
+        unsettleBulkThreads(unsettlableThreads);
         return;
       }
       if (clicked.value === "mark-unread") {
-        for (const threadKey of threadKeys) {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (thread) markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
-        }
-        clearSelection();
+        markBulkThreadsUnread(selectedThreads);
         return;
       }
       if (clicked.value !== "delete") return;
-      if (confirmThreadDelete) {
-        const confirmed = await settlePromise(() =>
-          api.dialogs.confirm(
-            [
-              gt("{count, plural, one {Delete {count} thread?} other {Delete {count} threads?}}", {
-                count,
-              }),
-              gt("This permanently clears conversation history for these threads."),
-            ].join("\n"),
-            { variant: "destructive" },
-          ),
-        );
-        if (confirmed._tag === "Failure" || !confirmed.value) return;
-      }
-      if (
-        !checkThreadOperations(
-          threadKeys.flatMap((threadKey) => {
-            const thread = threadByKeyRef.current.get(threadKey);
-            return thread ? [thread] : [];
-          }),
-        )
-      )
-        return;
-      const { deletedThreadKeys, firstFailure } = await deleteSelectedThreadEntries({
-        entries: threadKeys.map((threadKey) => ({ threadKey })),
-        delete: async ({ threadKey }, deletedThreadKeys) => {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (!thread) return null;
-          return deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
-            deletedThreadKeys,
-          });
-        },
-      });
-      if (firstFailure !== null) {
-        const firstError = squashAtomCommandFailure(firstFailure);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: gt("Failed to delete threads"),
-            description: thrownErrorMessage(firstError, m) ?? gt("An error occurred."),
-          }),
-        );
-      }
-      removeFromSelection(
-        getThreadKeysToDeselectAfterDelete(selectedThreadKeys, deletedThreadKeys, (threadKey) => {
-          const threadRef = parseScopedThreadKey(threadKey);
-          return threadRef !== null && readThreadShell(threadRef) !== null;
-        }),
-      );
+      await deleteBulkThreads(threadKeys, selectedThreadKeys);
     },
   );
 
@@ -2749,6 +2857,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              canSelect: !fromSearch,
               canRename: !fromSearch,
               supports: {
                 settlement: configLoaded,
@@ -2779,6 +2888,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         switch (clicked.value) {
+          case "select":
+            enterSelectionMode(threadKey);
+            return;
           case "filter-by-project":
             if (threadProjectGroup) {
               setProjectScopeKeys(
@@ -3144,6 +3256,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         </MenuRadioItem>
                       </MenuRadioGroup>
                     </MenuGroup>
+                    <MenuSeparator />
+                    <MenuItem onClick={() => enterSelectionMode()}>
+                      <SquareCheckIcon className="size-3.5" />
+                      {gt("Select threads")}
+                    </MenuItem>
                   </MenuPopup>
                 </Menu>
               }
@@ -3380,6 +3497,233 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {selectionMode || selectedThreadKeysSet.size > 0
+              ? (() => {
+                  const selectedKeysSnapshot = [...selectedThreadKeysSet];
+                  const liveSelectedKeys = selectedKeysSnapshot.filter((key) =>
+                    threadByKey.has(key),
+                  );
+                  const liveSelectedThreads = liveSelectedKeys.flatMap((key) => {
+                    const thread = threadByKey.get(key);
+                    return thread ? [thread] : [];
+                  });
+                  const snoozableSelectedThreads = liveSelectedThreads.filter(
+                    (thread) =>
+                      serverConfigs.has(thread.environmentId) &&
+                      !snoozedThreadKeys.has(threadShellKey(thread)) &&
+                      canSnooze(thread, { now: snoozeNow }),
+                  );
+                  const unsnoozableSelectedThreads = liveSelectedThreads.filter(
+                    (thread) =>
+                      serverConfigs.has(thread.environmentId) &&
+                      snoozedThreadKeys.has(threadShellKey(thread)),
+                  );
+                  const settlingSelectedThreads = liveSelectedThreads.filter(
+                    (thread) =>
+                      serverConfigs.has(thread.environmentId) &&
+                      thread.settledOverride !== "settled",
+                  );
+                  const unsettlableSelectedThreads = liveSelectedThreads.filter(
+                    (thread) =>
+                      serverConfigs.has(thread.environmentId) &&
+                      settledThreadKeys.has(threadShellKey(thread)),
+                  );
+                  const pinnedSelectedThreads = liveSelectedThreads.filter(
+                    (thread) => serverConfigs.has(thread.environmentId) && thread.pinnedAt != null,
+                  );
+                  const regeneratableSelectedThreads = liveSelectedThreads.filter(
+                    (thread) =>
+                      serverConfigs.has(thread.environmentId) && thread.titleRegeneration == null,
+                  );
+                  const snoozePresetEnvId =
+                    snoozableSelectedThreads[0]?.environmentId ??
+                    liveSelectedThreads[0]?.environmentId ??
+                    primaryEnvironmentId;
+                  const selectionSnoozePresets =
+                    snoozePresetEnvId !== null
+                      ? resolveSnoozePresets(
+                          selectionSnoozeMenuOpenedAt ?? new Date(snoozeNow),
+                          timestampFormat,
+                          snoozePresetEnvId,
+                        )
+                      : [];
+                  const canSnoozeSelected =
+                    snoozableSelectedThreads.length > 0 &&
+                    canOperateThreads(snoozableSelectedThreads);
+                  const canSettleSelected =
+                    settlingSelectedThreads.length > 0 &&
+                    canOperateThreads(settlingSelectedThreads);
+                  const selectedCount = liveSelectedThreads.length;
+                  return (
+                    <div
+                      data-testid="sidebar-selection-bar"
+                      className="mt-1.5 flex items-center gap-1 rounded-md border border-sidebar-border bg-sidebar-row-hover px-2 py-1"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-foreground tabular-nums">
+                        {selectedCount > 0
+                          ? gt("{count} selected", { count: selectedCount })
+                          : gt("Select threads")}
+                      </span>
+                      <Menu
+                        onOpenChange={(open) => {
+                          setSelectionSnoozeMenuOpenedAt(open ? new Date() : null);
+                        }}
+                      >
+                        <MenuTrigger
+                          render={
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              disabled={!canSnoozeSelected}
+                              aria-label={gt("Snooze selected threads")}
+                            />
+                          }
+                        >
+                          <ClockIcon />
+                          <span>{gt("Snooze", { $context: "verb, snooze selected threads" })}</span>
+                        </MenuTrigger>
+                        <MenuPopup align="end" width="content">
+                          <MenuGroup>
+                            <MenuGroupLabel>
+                              {gt("Snooze ({count})", { count: snoozableSelectedThreads.length })}
+                            </MenuGroupLabel>
+                            {selectionSnoozePresets.map((preset) => (
+                              <MenuItem
+                                key={preset.id}
+                                onClick={() => {
+                                  if (snoozePresetEnvId === null) return;
+                                  const picked = pickSnoozePreset(
+                                    selectionSnoozePresets,
+                                    preset.id,
+                                    timestampFormat,
+                                    snoozePresetEnvId,
+                                  );
+                                  if (picked) {
+                                    void snoozeBulkThreads(snoozableSelectedThreads, picked);
+                                  }
+                                }}
+                              >
+                                <span className="flex flex-col">
+                                  <span>{preset.label}</span>
+                                  <MenuItemDetail>{preset.whenLabel}</MenuItemDetail>
+                                </span>
+                              </MenuItem>
+                            ))}
+                            {selectionSnoozePresets.length > 0 ? <MenuSeparator /> : null}
+                            <MenuItem
+                              onClick={() => {
+                                void (async () => {
+                                  if (!checkThreadOperations(snoozableSelectedThreads)) return;
+                                  const preset = await requestCustomSnooze();
+                                  if (preset) {
+                                    await snoozeBulkThreads(snoozableSelectedThreads, preset);
+                                  }
+                                })();
+                              }}
+                            >
+                              {gt("Custom…")}
+                            </MenuItem>
+                          </MenuGroup>
+                        </MenuPopup>
+                      </Menu>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={!canSettleSelected}
+                        aria-label={gt("Settle selected threads")}
+                        onClick={() => settleBulkThreads(settlingSelectedThreads)}
+                      >
+                        <CircleCheckIcon />
+                        <span>{gt("Settle", { $context: "verb, settle selected threads" })}</span>
+                      </Button>
+                      <Menu>
+                        <MenuTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="ghost-muted"
+                              aria-label={gt("More selection actions")}
+                            />
+                          }
+                        >
+                          <EllipsisIcon />
+                        </MenuTrigger>
+                        <MenuPopup align="end" width="content">
+                          <MenuItem
+                            disabled={orderedThreadKeys.length === 0}
+                            onClick={() => selectThreads(orderedThreadKeys)}
+                          >
+                            {gt("Select all visible")}
+                          </MenuItem>
+                          {unsnoozableSelectedThreads.length > 0 ? (
+                            <MenuItem
+                              disabled={!canOperateThreads(unsnoozableSelectedThreads)}
+                              onClick={() => unsnoozeBulkThreads(unsnoozableSelectedThreads)}
+                            >
+                              {gt("Wake ({count})", { count: unsnoozableSelectedThreads.length })}
+                            </MenuItem>
+                          ) : null}
+                          {unsettlableSelectedThreads.length > 0 ? (
+                            <MenuItem
+                              disabled={!canOperateThreads(unsettlableSelectedThreads)}
+                              onClick={() => unsettleBulkThreads(unsettlableSelectedThreads)}
+                            >
+                              {gt("Un-settle ({count})", {
+                                count: unsettlableSelectedThreads.length,
+                              })}
+                            </MenuItem>
+                          ) : null}
+                          {pinnedSelectedThreads.length > 0 ? (
+                            <MenuItem
+                              disabled={!canOperateThreads(pinnedSelectedThreads)}
+                              onClick={() => unpinBulkThreads(pinnedSelectedThreads)}
+                            >
+                              {gt("Unpin ({count})", { count: pinnedSelectedThreads.length })}
+                            </MenuItem>
+                          ) : null}
+                          {selectedCount > 0 ? (
+                            <>
+                              <MenuItem onClick={() => markBulkThreadsUnread(liveSelectedThreads)}>
+                                {gt("Mark unread ({count})", { count: selectedCount })}
+                              </MenuItem>
+                              {regeneratableSelectedThreads.length > 0 ? (
+                                <MenuItem
+                                  disabled={!canOperateThreads(regeneratableSelectedThreads)}
+                                  onClick={() =>
+                                    void regenerateBulkThreadTitles(regeneratableSelectedThreads)
+                                  }
+                                >
+                                  {gt("Regenerate title ({count})", {
+                                    count: regeneratableSelectedThreads.length,
+                                  })}
+                                </MenuItem>
+                              ) : null}
+                              <MenuSeparator />
+                              <MenuItem
+                                variant="destructive"
+                                disabled={!canOperateThreads(liveSelectedThreads)}
+                                onClick={() =>
+                                  void deleteBulkThreads(liveSelectedKeys, selectedKeysSnapshot)
+                                }
+                              >
+                                {gt("Delete ({count})", { count: selectedCount })}
+                              </MenuItem>
+                            </>
+                          ) : null}
+                        </MenuPopup>
+                      </Menu>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost-muted"
+                        aria-label={gt("Exit selection mode")}
+                        onClick={clearSelection}
+                      >
+                        <XIcon />
+                      </Button>
+                    </div>
+                  );
+                })()
+              : null}
           </SidebarGroup>
         }
       >
@@ -3653,7 +3997,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             timestampFormat={timestampFormat}
                             onThreadClick={handleThreadClick}
-                            onThreadActivate={navigateToThread}
+                            onThreadActivate={handleThreadActivate}
                             onStartRename={startThreadRename}
                             onRenameTitleChange={setRenamingTitle}
                             onCommitRename={commitThreadRename}

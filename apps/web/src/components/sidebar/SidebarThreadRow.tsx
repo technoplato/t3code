@@ -725,6 +725,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
+  const showSelectionIndicator = useThreadSelectionStore(
+    (state) => state.selectionMode || state.selectedThreadKeys.size > 0,
+  );
+  const selectionIndicator = showSelectionIndicator ? (
+    <span
+      aria-hidden
+      data-testid="sidebar-row-checkbox"
+      data-checked={isSelected ? "true" : "false"}
+      className={cn(
+        "inline-flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
+        isSelected
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-sidebar-foreground/30 bg-transparent",
+      )}
+    >
+      {isSelected ? <CheckIcon className="size-3" strokeWidth={2.5} /> : null}
+    </span>
+  ) : null;
   const openPrLink = useOpenPrLink();
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
@@ -1335,6 +1353,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 data-sidebar-parent={props.navigationParent}
                 aria-label={accessibility.label}
                 aria-current={accessibility.current}
+                aria-selected={showSelectionIndicator ? isSelected : undefined}
                 data-testid={inFolder ? "sidebar-row-folder" : "sidebar-row-slim"}
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(
@@ -1354,6 +1373,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           >
             {/* `contents` keeps one-line rows a single flex row. */}
             <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
+              {selectionIndicator}
               {inFolder ? null : (
                 <span
                   className={cn(
@@ -1541,6 +1561,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               data-sidebar-parent={props.navigationParent}
               aria-label={accessibility.label}
               aria-current={accessibility.current}
+              aria-selected={showSelectionIndicator ? isSelected : undefined}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
@@ -1558,6 +1579,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
           >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
+              {selectionIndicator}
               {draftIndicator}
               {props.project ? (
                 <ProjectFavicon project={props.project} className="size-4 shrink-0" />

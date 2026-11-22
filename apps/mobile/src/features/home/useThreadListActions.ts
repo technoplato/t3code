@@ -234,6 +234,18 @@ export function useThreadListActions(): {
   readonly snoozeThread: (thread: EnvironmentThreadShell, snoozedUntil: string) => Promise<boolean>;
   readonly unsnoozeThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly unsettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
+  readonly snoozeThreads: (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+    snoozedUntil: string,
+  ) => Promise<number>;
+  readonly unsnoozeThreads: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly settleThreads: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly unsettleThreads: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly markThreadsUnread: (threads: ReadonlyArray<EnvironmentThreadShell>) => Promise<number>;
+  readonly confirmDeleteThreads: (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+    onConfirmed?: () => void,
+  ) => void;
   readonly pinThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly unpinThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly setThreadAutoSettle: (
@@ -248,6 +260,10 @@ export function useThreadListActions(): {
   readonly regenerateThreadTitle: (thread: EnvironmentThreadShell) => Promise<boolean>;
 } {
   const executeAction = useThreadActionExecutor();
+  const settleMutation = useAtomCommand(threadEnvironment.settle, { reportFailure: false });
+  const unsettleMutation = useAtomCommand(threadEnvironment.unsettle, { reportFailure: false });
+  const deleteMutation = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
+  const markUnreadMutation = useAtomCommand(threadEnvironment.markUnread, { reportFailure: false });
   const snoozeMutation = useAtomCommand(threadEnvironment.snooze, { reportFailure: false });
   const unsnoozeMutation = useAtomCommand(threadEnvironment.unsnooze, { reportFailure: false });
   const pinMutation = useAtomCommand(threadEnvironment.pin, { reportFailure: false });
@@ -806,6 +822,283 @@ export function useThreadListActions(): {
   const confirmDeleteThread = (thread: EnvironmentThreadShell) =>
     confirmThreadDeletion(executeAction, thread);
 
+  const snoozeThreads = async (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+    snoozedUntil: string,
+  ): Promise<number> => {
+    const liveTargets = threads.map(liveThread);
+    if (liveTargets.length === 0) return 0;
+    for (const thread of liveTargets) {
+      if (!checkThreadOperationPermission(thread, m(msg("Could not snooze threads")))) return 0;
+    }
+    const now = new Date().toISOString();
+    const actionable = liveTargets.filter(
+      (thread) => environmentConfigLoaded(thread.environmentId) && canSnooze(thread, { now }),
+    );
+    if (actionable.length === 0) return 0;
+    selectionHaptic();
+    const outcomes = await Promise.all(
+      actionable.map(async (thread) => {
+        const key = scopedThreadKey(thread.environmentId, thread.id);
+        if (snoozeInFlightThreadKeys.current.has(key)) return { ok: false as const, error: null };
+        snoozeInFlightThreadKeys.current.add(key);
+        try {
+          ThreadUndo.invalidate("snooze", key);
+          const result = await withThreadDismissal(
+            key,
+            () =>
+              snoozeMutation({
+                environmentId: thread.environmentId,
+                input: { threadId: thread.id, snoozedUntil },
+              }),
+            (r) => r._tag === "Success",
+          );
+          if (result._tag === "Failure") {
+            return { ok: false as const, error: Cause.squash(result.cause) };
+          }
+          return { ok: true as const, error: null };
+        } finally {
+          snoozeInFlightThreadKeys.current.delete(key);
+        }
+      }),
+    );
+    const succeededCount = outcomes.filter((outcome) => outcome.ok).length;
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.ok || outcome.error === null ? [] : [outcome.error],
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0];
+      Dialog.alert(
+        m(msg("Could not snooze threads")),
+        firstError instanceof Error && errorDisplayMessage(firstError, m) !== null
+          ? (errorDisplayMessage(firstError, m) ?? firstError.message)
+          : m(msg("Some threads could not be snoozed.")),
+      );
+    }
+    return succeededCount;
+  };
+
+  const unsnoozeThreads = async (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+  ): Promise<number> => {
+    const liveTargets = threads.map(liveThread);
+    if (liveTargets.length === 0) return 0;
+    for (const thread of liveTargets) {
+      if (!checkThreadOperationPermission(thread, m(msg("Could not wake threads")))) return 0;
+    }
+    const actionable = liveTargets.filter((thread) =>
+      environmentConfigLoaded(thread.environmentId),
+    );
+    if (actionable.length === 0) return 0;
+    selectionHaptic();
+    const outcomes = await Promise.all(
+      actionable.map(async (thread) => {
+        const key = scopedThreadKey(thread.environmentId, thread.id);
+        ThreadUndo.invalidate("snooze", key);
+        const result = await withThreadDismissal(
+          key,
+          () =>
+            unsnoozeMutation({
+              environmentId: thread.environmentId,
+              input: { threadId: thread.id, reason: "user" },
+            }),
+          (r) => r._tag === "Success",
+        );
+        return result._tag === "Success"
+          ? { ok: true as const, error: null }
+          : { ok: false as const, error: Cause.squash(result.cause) };
+      }),
+    );
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.ok || outcome.error === null ? [] : [outcome.error],
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0];
+      Dialog.alert(
+        m(msg("Could not wake threads")),
+        firstError instanceof Error && errorDisplayMessage(firstError, m) !== null
+          ? (errorDisplayMessage(firstError, m) ?? firstError.message)
+          : m(msg("Some threads could not be woken.")),
+      );
+    }
+    return outcomes.filter((outcome) => outcome.ok).length;
+  };
+
+  const settleThreads = async (threads: ReadonlyArray<EnvironmentThreadShell>): Promise<number> => {
+    const liveTargets = threads.map(liveThread);
+    if (liveTargets.length === 0) return 0;
+    for (const thread of liveTargets) {
+      if (!checkThreadOperationPermission(thread, m(msg("Could not settle threads")))) return 0;
+    }
+    const actionable = liveTargets.filter(
+      (thread) =>
+        environmentConfigLoaded(thread.environmentId) && thread.settledOverride !== "settled",
+    );
+    if (actionable.length === 0) return 0;
+    selectionHaptic();
+    const outcomes = await Promise.all(
+      actionable.map(async (thread) => {
+        const key = scopedThreadKey(thread.environmentId, thread.id);
+        ThreadUndo.invalidate("pin", key);
+        ThreadUndo.invalidate("snooze", key);
+        ThreadUndo.invalidate("settle", key);
+        const result = await withThreadDismissal(
+          key,
+          () =>
+            settleMutation({
+              environmentId: thread.environmentId,
+              input: { threadId: thread.id },
+            }),
+          (r) => r._tag === "Success",
+        );
+        return result._tag === "Success"
+          ? { ok: true as const, error: null }
+          : { ok: false as const, error: Cause.squash(result.cause) };
+      }),
+    );
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.ok || outcome.error === null ? [] : [outcome.error],
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0];
+      Dialog.alert(
+        m(msg("Could not settle threads")),
+        firstError instanceof Error && errorDisplayMessage(firstError, m) !== null
+          ? (errorDisplayMessage(firstError, m) ?? firstError.message)
+          : m(msg("Some threads could not be settled.")),
+      );
+    }
+    return outcomes.filter((outcome) => outcome.ok).length;
+  };
+
+  const unsettleThreads = async (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+  ): Promise<number> => {
+    const liveTargets = threads.map(liveThread);
+    if (liveTargets.length === 0) return 0;
+    for (const thread of liveTargets) {
+      if (!checkThreadOperationPermission(thread, m(msg("Could not un-settle threads")))) return 0;
+    }
+    const actionable = liveTargets.filter((thread) =>
+      environmentConfigLoaded(thread.environmentId),
+    );
+    if (actionable.length === 0) return 0;
+    selectionHaptic();
+    const outcomes = await Promise.all(
+      actionable.map(async (thread) => {
+        const key = scopedThreadKey(thread.environmentId, thread.id);
+        ThreadUndo.invalidate("settle", key);
+        const result = await withThreadDismissal(
+          key,
+          () =>
+            unsettleMutation({
+              environmentId: thread.environmentId,
+              input: { threadId: thread.id, reason: "user" },
+            }),
+          (r) => r._tag === "Success",
+        );
+        return result._tag === "Success"
+          ? { ok: true as const, error: null }
+          : { ok: false as const, error: Cause.squash(result.cause) };
+      }),
+    );
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.ok || outcome.error === null ? [] : [outcome.error],
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0];
+      Dialog.alert(
+        m(msg("Could not un-settle threads")),
+        firstError instanceof Error && errorDisplayMessage(firstError, m) !== null
+          ? (errorDisplayMessage(firstError, m) ?? firstError.message)
+          : m(msg("Some threads could not be un-settled.")),
+      );
+    }
+    return outcomes.filter((outcome) => outcome.ok).length;
+  };
+
+  const markThreadsUnread = async (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+  ): Promise<number> => {
+    const liveTargets = threads.map(liveThread);
+    if (liveTargets.length === 0) return 0;
+    selectionHaptic();
+    const outcomes = await Promise.all(
+      liveTargets.map((thread) =>
+        markUnreadMutation({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id },
+        }),
+      ),
+    );
+    return outcomes.filter((result) => result._tag === "Success").length;
+  };
+
+  const confirmDeleteThreads = (
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+    onConfirmed?: () => void,
+  ) => {
+    const liveTargets = threads.map(liveThread);
+    if (liveTargets.length === 0) return;
+    for (const thread of liveTargets) {
+      if (!checkThreadOperationPermission(thread, m(msg("Could not delete threads")))) return;
+    }
+    const count = liveTargets.length;
+    Dialog.confirm({
+      title: m(
+        msg("{count, plural, one {Delete {count} thread?} other {Delete {count} threads?}}", {
+          count,
+        }),
+      ),
+      message: m(msg("This permanently clears conversation history for these threads.")),
+      confirmText: m(msg("Delete", { $context: "verb, confirms deleting a thread" })),
+      destructive: true,
+      onConfirm: () => {
+        onConfirmed?.();
+        selectionHaptic();
+        void (async () => {
+          const touchedEnvironments = new Set<EnvironmentThreadShell["environmentId"]>();
+          const outcomes = await Promise.all(
+            liveTargets.map(async (thread) => {
+              const key = scopedThreadKey(thread.environmentId, thread.id);
+              const result = await withThreadDismissal(
+                key,
+                () =>
+                  deleteMutation({
+                    environmentId: thread.environmentId,
+                    input: { threadId: thread.id },
+                  }),
+                (r) => r._tag === "Success",
+              );
+              if (result._tag === "Success") {
+                for (const kind of ["settle", "snooze", "pin"]) ThreadUndo.invalidate(kind, key);
+                clearComposerDraft(key);
+                touchedEnvironments.add(thread.environmentId);
+                return { ok: true as const, error: null };
+              }
+              return { ok: false as const, error: Cause.squash(result.cause) };
+            }),
+          );
+          for (const envId of touchedEnvironments) {
+            refreshArchivedThreadsForEnvironment(envId);
+          }
+          const failures = outcomes.flatMap((outcome) =>
+            outcome.ok || outcome.error === null ? [] : [outcome.error],
+          );
+          if (failures.length > 0) {
+            const firstError = failures[0];
+            Dialog.alert(
+              m(msg("Could not delete threads")),
+              firstError instanceof Error && errorDisplayMessage(firstError, m) !== null
+                ? (errorDisplayMessage(firstError, m) ?? firstError.message)
+                : m(msg("Some threads could not be deleted.")),
+            );
+          }
+        })();
+      },
+    });
+  };
+
   // `moveThread` looks up its own row, and refuses while a list holds older rows.
   return {
     archiveThread: (thread) => archiveThread(liveThread(thread)),
@@ -814,6 +1107,12 @@ export function useThreadListActions(): {
     snoozeThread: (thread, snoozedUntil) => snoozeThread(liveThread(thread), snoozedUntil),
     unsnoozeThread: (thread) => unsnoozeThread(liveThread(thread)),
     unsettleThread: (thread) => unsettleThread(liveThread(thread)),
+    snoozeThreads,
+    unsnoozeThreads,
+    settleThreads,
+    unsettleThreads,
+    markThreadsUnread,
+    confirmDeleteThreads,
     pinThread: (thread) => pinThread(liveThread(thread)),
     unpinThread: (thread) => unpinThread(liveThread(thread)),
     setThreadAutoSettle: (thread, enabled) => setThreadAutoSettle(liveThread(thread), enabled),

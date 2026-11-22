@@ -6,6 +6,7 @@ import { m, type MessageResolver } from "../i18n/messages";
 
 export type ThreadActionMenuId =
   | "find"
+  | "select"
   | "new-thread-on-branch"
   | "filter-by-project"
   | "turn-into-project"
@@ -96,6 +97,8 @@ export function buildDraftActionMenuItems(
 export interface ThreadActionMenuState {
   readonly canOperate: boolean;
   readonly canFind?: boolean;
+  /** True when the list supports entering multi-select mode from this thread's menu. */
+  readonly canSelect?: boolean;
   /** False where no inline title editor is rendered, such as sidebar search results. */
   readonly canRename?: boolean;
   readonly branch: string | null;
@@ -129,6 +132,7 @@ export interface ThreadActionMenuState {
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
+    "select",
     "new-thread-on-branch",
     "project-settings",
     "mark-unread",
@@ -198,6 +202,15 @@ export function buildThreadActionMenuItems(
                   },
                 ],
               },
+        ]
+      : []),
+    ...(state.canSelect
+      ? [
+          {
+            id: "select" as const,
+            label: resolve(msg("Select", { $context: "verb, start selecting multiple threads" })),
+            icon: "square-check",
+          },
         ]
       : []),
     {
