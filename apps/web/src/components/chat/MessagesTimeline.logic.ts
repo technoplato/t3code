@@ -8,6 +8,10 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
+import {
+  resolveChatListMessageStep,
+  type ChatListMessageStepTarget,
+} from "@t3tools/shared/chatList";
 import { claudeResumeCompactionAge } from "@t3tools/shared/claudeCompaction";
 import {
   IDLE_COMPACTING_LABELS,
@@ -496,11 +500,7 @@ export function deriveNavigableMessageRowIndices(
   return indices;
 }
 
-export type AdjacentMessageNavigationTarget =
-  | { readonly kind: "row"; readonly rowIndex: number; readonly rowId: string }
-  | { readonly kind: "end" };
-
-const MESSAGE_NAVIGATION_SCROLL_TOLERANCE_PX = 4;
+export type AdjacentMessageNavigationTarget = ChatListMessageStepTarget;
 
 export function resolveAdjacentMessageNavigationTarget(input: {
   readonly rows: ReadonlyArray<MessagesTimelineRow>;
@@ -511,70 +511,18 @@ export function resolveAdjacentMessageNavigationTarget(input: {
   readonly positionAtIndex: (index: number) => number | undefined;
   readonly visibleStart?: number | null | undefined;
   readonly pendingRowId?: string | null | undefined;
-  readonly targetOffset?: number;
-  readonly tolerance?: number;
 }): AdjacentMessageNavigationTarget | null {
-  const messageIndices = deriveNavigableMessageRowIndices(input.rows);
-  if (messageIndices.length === 0) {
-    return null;
-  }
-
-  const rowTarget = (rowIndex: number): AdjacentMessageNavigationTarget => ({
-    kind: "row",
-    rowIndex,
-    rowId: input.rows[rowIndex]!.id,
+  const { rows, pendingRowId, ...position } = input;
+  return resolveChatListMessageStep({
+    ...position,
+    candidates: deriveNavigableMessageRowIndices(rows).map((rowIndex) => ({
+      rowIndex,
+      rowId: rows[rowIndex]!.id,
+    })),
+    pendingRowIndex:
+      pendingRowId == null ? null : rows.findIndex((row) => row.id === pendingRowId),
+    targetOffset: TIMELINE_MINIMAP_TARGET_OFFSET,
   });
-
-  if (input.pendingRowId != null) {
-    const pendingPos = messageIndices.findIndex(
-      (rowIndex) => input.rows[rowIndex]?.id === input.pendingRowId,
-    );
-    if (pendingPos >= 0) {
-      if (input.direction === "previous") {
-        return pendingPos > 0 ? rowTarget(messageIndices[pendingPos - 1]!) : null;
-      }
-      if (pendingPos + 1 < messageIndices.length) {
-        return rowTarget(messageIndices[pendingPos + 1]!);
-      }
-      return input.atEnd ? null : { kind: "end" };
-    }
-  }
-
-  const anchor = input.scroll + (input.targetOffset ?? TIMELINE_MINIMAP_TARGET_OFFSET);
-  const tolerance = input.tolerance ?? MESSAGE_NAVIGATION_SCROLL_TOLERANCE_PX;
-
-  if (input.direction === "previous") {
-    if (input.atStart) {
-      return null;
-    }
-    for (let index = messageIndices.length - 1; index >= 0; index -= 1) {
-      const rowIndex = messageIndices[index]!;
-      const top = input.positionAtIndex(rowIndex);
-      if (top != null && Number.isFinite(top)) {
-        if (top < anchor - tolerance) {
-          return rowTarget(rowIndex);
-        }
-      } else if (input.visibleStart != null && rowIndex < input.visibleStart) {
-        return rowTarget(rowIndex);
-      }
-    }
-    return null;
-  }
-
-  if (input.atEnd) {
-    return null;
-  }
-  for (const rowIndex of messageIndices) {
-    const top = input.positionAtIndex(rowIndex);
-    if (top != null && Number.isFinite(top)) {
-      if (top > anchor + tolerance) {
-        return rowTarget(rowIndex);
-      }
-    } else if (input.visibleStart != null && rowIndex > input.visibleStart) {
-      return rowTarget(rowIndex);
-    }
-  }
-  return { kind: "end" };
 }
 
 export function resolveTimelineMinimapCurrentIndex(input: {
