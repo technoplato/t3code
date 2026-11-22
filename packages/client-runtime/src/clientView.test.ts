@@ -1,10 +1,19 @@
-import { CLIENT_VIEW_MAX_ITEMS, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  CLIENT_IDENTITY_MAX_TEXT_LENGTH,
+  CLIENT_VIEW_MAX_ITEMS,
+  ClientActivityIdentity,
+  EnvironmentId,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   CLIENT_VIEW_GESTURE_REPORT_INTERVAL_MS,
   CLIENT_VIEW_REPORT_DELAY_MS,
   type ClientViewContent,
+  clientActivityIdentity,
+  clientViewConnection,
   clientViewSelection,
   makeClientViewTracker,
   visibleViewItems,
@@ -114,6 +123,37 @@ function harness() {
     changes: () => changes,
   };
 }
+
+const decodeIdentity = Schema.decodeSync(ClientActivityIdentity);
+
+describe("clientActivityIdentity", () => {
+  it("drops blanks and cuts long values, so a report never fails on who sent it", () => {
+    const identity = clientActivityIdentity({
+      formFactor: "tablet",
+      os: " iPadOS ",
+      osVersion: null,
+      deviceName: "x".repeat(CLIENT_IDENTITY_MAX_TEXT_LENGTH + 40),
+      deviceModel: "   ",
+      browser: undefined,
+      connection: clientViewConnection({ _tag: "RelayConnectionTarget" }),
+    });
+    expect(identity).toEqual({
+      formFactor: "tablet",
+      os: "iPadOS",
+      deviceName: "x".repeat(CLIENT_IDENTITY_MAX_TEXT_LENGTH),
+      connection: "relay",
+    });
+    expect(decodeIdentity(identity)).toEqual(identity);
+  });
+
+  it("names how a client reaches a server", () => {
+    expect(clientViewConnection({ _tag: "PrimaryConnectionTarget" }, true)).toBe("local");
+    expect(clientViewConnection({ _tag: "PrimaryConnectionTarget" })).toBe("direct");
+    expect(clientViewConnection({ _tag: "BearerConnectionTarget" })).toBe("direct");
+    expect(clientViewConnection({ _tag: "SshConnectionTarget" })).toBe("ssh");
+    expect(clientViewConnection(undefined)).toBeUndefined();
+  });
+});
 
 describe("makeClientViewTracker", () => {
   it("reports a thread switch at once and looks again once its rows mount", () => {

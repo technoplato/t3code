@@ -10,9 +10,12 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import * as NodeOS from "node:os";
+
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -34,8 +37,9 @@ import {
   type ClientViewSnapshot,
   ClientViewSnapshot as ClientViewSnapshotSchema,
   type ClientViewThreadData,
+  describeViewClient,
   hydrateActiveClientView,
-  snapshotClientKind,
+  type ViewSessionClient,
 } from "./clientViewHydration.ts";
 import {
   type ClientViewRegistry,
@@ -66,7 +70,9 @@ export class ClientViewSource extends Context.Service<
     ) => Effect.Effect<ClientViewThreadData | null>;
     /** One element per change to a thread's projection. */
     readonly threadChanges: Stream.Stream<ThreadId>;
-    readonly deviceName: (sessionId: AuthSessionId) => Effect.Effect<string | null>;
+    /** What the session's sign-in recorded about its client. */
+    readonly sessionClient: (sessionId: AuthSessionId) => Effect.Effect<ViewSessionClient | null>;
+    readonly hostName: Effect.Effect<string>;
   }
 >()("t3/background/ClientViewExport/ClientViewSource") {}
 
@@ -99,7 +105,10 @@ const makeSource = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
-  let lastDevice: { readonly sessionId: AuthSessionId; readonly name: string | null } | null = null;
+  let lastSession: {
+    readonly sessionId: AuthSessionId;
+    readonly client: ViewSessionClient | null;
+  } | null = null;
 
   const readThread = Effect.fn("ClientViewSource.readThread")(
     function* (threadId: ThreadId, itemIds: ReadonlyArray<string>) {
@@ -186,16 +195,16 @@ const makeSource = Effect.gen(function* () {
         ),
       ),
     ),
-    deviceName: Effect.fn("ClientViewSource.deviceName")(function* (sessionId) {
-      if (lastDevice?.sessionId === sessionId) return lastDevice.name;
+    sessionClient: Effect.fn("ClientViewSource.sessionClient")(function* (sessionId) {
+      if (lastSession?.sessionId === sessionId) return lastSession.client;
       const sessions = yield* auth
         .listClientSessions(sessionId)
         .pipe(Effect.orElseSucceed(() => []));
-      const client = sessions.find((session) => session.current)?.client;
-      const name = client?.label ?? client?.os ?? null;
-      lastDevice = { sessionId, name };
-      return name;
+      const client = sessions.find((session) => session.current)?.client ?? null;
+      lastSession = { sessionId, client };
+      return client;
     }),
+    hostName: Effect.sync(() => NodeOS.hostname()),
   });
 });
 
@@ -248,16 +257,23 @@ const make = Effect.gen(function* () {
   ) {
     if (winner === null) return { version: 1, state: "none", capturedAtMs } as const;
     const { view } = winner;
-    const deviceName = yield* source.deviceName(winner.sessionId);
-    const clientKind = snapshotClientKind(winner.clientKind);
+    // A desktop app's own window, on this machine. A client that predates `connection` counts.
+    const onThisHost =
+      config.mode === "desktop" &&
+      winner.clientKind === "desktop-renderer" &&
+      (winner.identity?.connection ?? "local") === "local";
+    const client = describeViewClient({
+      tracked: winner,
+      session: yield* source.sessionClient(winner.sessionId),
+      hostName: onThisHost ? yield* source.hostName : null,
+    });
     if (view.environmentId !== localEnvironmentId) {
       return {
         version: 1,
         state: "other-environment",
         capturedAtMs,
         leaseExpiresAtMs: winner.expiresAtMs,
-        clientKind,
-        deviceName,
+        ...client,
         windowId: view.windowId,
         environmentId: view.environmentId,
         threadId: view.threadId,
@@ -271,8 +287,8 @@ const make = Effect.gen(function* () {
     return hydrateActiveClientView({
       tracked: winner,
       thread,
-      deviceName,
-      appBundleId: config.mode === "desktop" && clientKind === "desktop" ? hostBundleId : null,
+      client,
+      appBundleId: onThisHost ? hostBundleId : null,
       capturedAtMs,
     });
   });
@@ -342,8 +358,11 @@ const make = Effect.gen(function* () {
             {
               sessionId,
               rpcClientId,
+              clientId: input.clientId,
               clientKind: input.clientKind,
+              ...(input.identity === undefined ? {} : { identity: input.identity }),
               view,
+              observedAtMs: DateTime.toEpochMillis(input.observedAt),
               ttlMs: resolveLeaseTtlMs(input.ttlMs),
             },
             nowMs,

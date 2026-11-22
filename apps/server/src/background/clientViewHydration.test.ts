@@ -12,6 +12,7 @@ import * as DateTime from "effect/DateTime";
 import {
   type ClientViewThreadData,
   describeTurnItem,
+  describeViewClient,
   hydrateActiveClientView,
   MAX_PENDING_BLOCKER_LENGTH,
   MAX_VISIBLE_TEXT_LENGTH,
@@ -64,6 +65,7 @@ function tracked(view: Partial<ClientView> = {}): TrackedClientView {
   return {
     sessionId: AuthSessionId.make("session-1"),
     rpcClientId: RpcClientId.make(1),
+    clientId: "client-1",
     clientKind: "desktop-renderer",
     view: {
       windowId: "window-1",
@@ -84,7 +86,7 @@ const hydrate = (view: Partial<ClientView>, thread: ClientViewThreadData) =>
   hydrateActiveClientView({
     tracked: tracked(view),
     thread,
-    deviceName: "Mini",
+    client: describeViewClient({ tracked: tracked(view), session: null, hostName: "Mini" }),
     appBundleId: "com.example.app",
     capturedAtMs: 3_000,
   });
@@ -155,6 +157,110 @@ describe("describeTurnItem", () => {
   });
 });
 
+describe("describeViewClient", () => {
+  const describeClient = (
+    reported: Pick<TrackedClientView, "clientKind" | "identity">,
+    session: Parameters<typeof describeViewClient>[0]["session"] = null,
+    hostName: string | null = null,
+  ) => describeViewClient({ tracked: { clientId: "client-1", ...reported }, session, hostName });
+
+  it("tells a phone, a tablet, a desktop app and a browser apart", () => {
+    const iphone = describeClient({
+      clientKind: "mobile",
+      identity: {
+        formFactor: "phone",
+        os: "iOS",
+        osVersion: "26.1",
+        deviceName: "iPhone",
+        deviceModel: "iPhone 17 Pro",
+        appName: "T3 Code",
+        appVersion: "2.3.0",
+        connection: "relay",
+      },
+    });
+    assert.deepStrictEqual(iphone, {
+      clientKind: "mobile",
+      deviceName: "iPhone",
+      client: {
+        clientId: "client-1",
+        formFactor: "phone",
+        os: "iOS",
+        osVersion: "26.1",
+        deviceModel: "iPhone 17 Pro",
+        browser: null,
+        appName: "T3 Code",
+        appVersion: "2.3.0",
+        webDeployment: null,
+        connection: "relay",
+      },
+    });
+
+    const ipad = describeClient({
+      clientKind: "mobile",
+      identity: { formFactor: "tablet", os: "iPadOS", deviceName: "iPad" },
+    });
+    assert.equal(ipad.clientKind, iphone.clientKind);
+    assert.deepStrictEqual(
+      [ipad.client.formFactor, ipad.client.os, ipad.deviceName],
+      ["tablet", "iPadOS", "iPad"],
+    );
+
+    const androidTablet = describeClient({
+      clientKind: "mobile",
+      identity: { formFactor: "tablet", os: "Android", deviceName: "Pixel Tablet" },
+    });
+    assert.deepStrictEqual(
+      [androidTablet.client.formFactor, androidTablet.client.os, androidTablet.deviceName],
+      ["tablet", "Android", "Pixel Tablet"],
+    );
+
+    // A desktop app names no device; on the server's own machine that is the host.
+    const desktop = describeClient(
+      {
+        clientKind: "desktop-renderer",
+        identity: { formFactor: "desktop", os: "macOS", appName: "T3 Code", connection: "local" },
+      },
+      { deviceType: "desktop", browser: "Chrome" },
+      "mini.local",
+    );
+    assert.deepStrictEqual(
+      [desktop.clientKind, desktop.deviceName, desktop.client.browser, desktop.client.connection],
+      ["desktop", "mini.local", null, "local"],
+    );
+
+    const browser = describeClient({
+      clientKind: "web",
+      identity: {
+        formFactor: "desktop",
+        os: "macOS",
+        browser: "Safari",
+        webDeployment: "hosted",
+        connection: "relay",
+      },
+    });
+    assert.deepStrictEqual(
+      [browser.clientKind, browser.deviceName, browser.client.webDeployment],
+      ["web", "Safari on macOS", "hosted"],
+    );
+  });
+
+  it("falls back to the sign-in's record for a client that sends no identity", () => {
+    const older = describeClient(
+      { clientKind: "mobile" },
+      { label: "T3 Code Mobile", deviceType: "mobile", os: "iOS" },
+    );
+    assert.deepStrictEqual(
+      [older.deviceName, older.client.formFactor, older.client.os, older.client.connection],
+      ["T3 Code Mobile", "phone", "iOS", null],
+    );
+    const unknown = describeClient({ clientKind: "unknown" });
+    assert.deepStrictEqual(
+      [unknown.clientKind, unknown.deviceName, unknown.client.formFactor],
+      ["web", null, null],
+    );
+  });
+});
+
 describe("hydrateActiveClientView", () => {
   it("takes prose from the server's records and lists tools by name", () => {
     const snapshot = hydrate(
@@ -202,6 +308,8 @@ describe("hydrateActiveClientView", () => {
     assert.equal(snapshot.agentLabel, "claude opus");
     assert.equal(snapshot.runStartedAtMs, DateTime.toEpochMillis(NOW));
     assert.equal(snapshot.clientKind, "desktop");
+    assert.equal(snapshot.deviceName, "Mini");
+    assert.equal(snapshot.client.clientId, "client-1");
     assert.equal(snapshot.leaseExpiresAtMs, 47_000);
     assert.equal(snapshot.seq, 7);
   });

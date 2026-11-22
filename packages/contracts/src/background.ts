@@ -107,6 +107,32 @@ export const ClientView = Schema.Struct({
 });
 export type ClientView = typeof ClientView.Type;
 
+export const CLIENT_IDENTITY_MAX_TEXT_LENGTH = 128;
+
+const IdentityText = Schema.String.check(Schema.isMaxLength(CLIENT_IDENTITY_MAX_TEXT_LENGTH));
+
+/**
+ * Who a client says it is, sent with its view. Capped text, not literals: a value a server has
+ * not heard of must never fail the report that carries it.
+ */
+export const ClientActivityIdentity = Schema.Struct({
+  /** `phone`, `tablet` or `desktop`. */
+  formFactor: Schema.optionalKey(IdentityText),
+  os: Schema.optionalKey(IdentityText),
+  osVersion: Schema.optionalKey(IdentityText),
+  /** What the device or its owner calls it. */
+  deviceName: Schema.optionalKey(IdentityText),
+  deviceModel: Schema.optionalKey(IdentityText),
+  browser: Schema.optionalKey(IdentityText),
+  appName: Schema.optionalKey(IdentityText),
+  appVersion: Schema.optionalKey(IdentityText),
+  /** A browser only: `hosted` or `server`. */
+  webDeployment: Schema.optionalKey(IdentityText),
+  /** How this client reaches the server it reports to: `local`, `direct`, `relay` or `ssh`. */
+  connection: Schema.optionalKey(IdentityText),
+});
+export type ClientActivityIdentity = typeof ClientActivityIdentity.Type;
+
 export const ClientActivityReportInput = Schema.Struct({
   environmentId: Schema.optionalKey(EnvironmentId),
   clientId: ClientActivityClientId,
@@ -121,6 +147,7 @@ export const ClientActivityReportInput = Schema.Struct({
   observedAt: Schema.DateTimeUtc,
   /** Top level, not a scope: scopes are filtered per server, and every server hears the view. */
   view: Schema.optionalKey(ClientView),
+  identity: Schema.optionalKey(ClientActivityIdentity),
 });
 export type ClientActivityReportInput = typeof ClientActivityReportInput.Type;
 

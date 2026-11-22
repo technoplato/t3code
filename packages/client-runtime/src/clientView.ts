@@ -1,6 +1,8 @@
 import {
+  CLIENT_IDENTITY_MAX_TEXT_LENGTH,
   CLIENT_VIEW_MAX_ITEMS,
   CLIENT_VIEW_MAX_SELECTION_LENGTH,
+  type ClientActivityIdentity,
   type ClientView,
   type ClientViewItem,
   type ClientViewSelection,
@@ -72,6 +74,35 @@ export function clientViewSelection(
     ...(itemId === undefined ? {} : { itemId }),
     text: text.slice(0, CLIENT_VIEW_MAX_SELECTION_LENGTH),
   };
+}
+
+/** A client's identity fit for a report: blanks dropped and long values cut, so it always decodes. */
+export function clientActivityIdentity(fields: {
+  readonly [Field in keyof ClientActivityIdentity]?: string | null | undefined;
+}): ClientActivityIdentity {
+  return Object.fromEntries(
+    Object.entries(fields).flatMap(([field, value]) => {
+      const text = value?.trim().slice(0, CLIENT_IDENTITY_MAX_TEXT_LENGTH) ?? "";
+      return text.length > 0 ? [[field, text]] : [];
+    }),
+  );
+}
+
+/** How a client reaches one server. `local` is a client on the server's own machine. */
+export function clientViewConnection(
+  target: { readonly _tag: string } | undefined,
+  onServerHost = false,
+): "local" | "direct" | "relay" | "ssh" | undefined {
+  switch (target?._tag) {
+    case undefined:
+      return undefined;
+    case "RelayConnectionTarget":
+      return "relay";
+    case "SshConnectionTarget":
+      return "ssh";
+    default:
+      return onServerHost ? "local" : "direct";
+  }
 }
 
 export interface ClientViewTracker {

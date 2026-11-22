@@ -5,7 +5,8 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { CHATGPT_USAGE_URL } from "@t3tools/shared/usageLimits";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../../test/render";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
@@ -61,5 +62,55 @@ describe("UsageLimitsPooled ChatGPT usage card", () => {
     await expect
       .element(screen.getByText("View usage in ChatGPT with your connected account."))
       .toBeVisible();
+  });
+});
+
+function claude(instanceId: string, displayName: string, resetsAt: string): ServerProvider {
+  return {
+    ...managedChatGpt(instanceId, displayName),
+    driver: ProviderDriverKind.make("claudeAgent"),
+    usageLimits: {
+      checkedAt,
+      windows: [{ id: "five_hour", kind: "session", label: "Session", usedPercent: 20, resetsAt }],
+    },
+  };
+}
+
+describe("UsageLimitsPooled account order", () => {
+  it("drags an account onto another to set the manual order", async () => {
+    const presentations = new Map([
+      [
+        EnvironmentId.make("desk"),
+        {
+          entry: { target: { label: "Desk" } },
+          serverConfig: {
+            providers: [
+              claude("claude_late", "Late", "2026-10-25T19:00:00.000Z"),
+              claude("claude_soon", "Soon", "2026-10-25T17:00:00.000Z"),
+            ],
+          },
+        },
+      ],
+    ]);
+    const onAccountsViewChange = vi.fn();
+    await using screen = await render(
+      <UsageLimitsPooled
+        presentations={presentations}
+        now={Date.parse(checkedAt)}
+        onAccountsViewChange={onAccountsViewChange}
+      />,
+    );
+
+    await userEvent.dragAndDrop(
+      screen.getByRole("button", { name: /^Soon: / }),
+      screen.getByRole("button", { name: /^Late: / }),
+    );
+
+    expect(onAccountsViewChange).toHaveBeenCalledWith({
+      sort: "manual",
+      hideEmptySessions: false,
+      hideEmptyWeeks: false,
+      order: ["desk:claude_late", "desk:claude_soon"],
+    });
   });
 });

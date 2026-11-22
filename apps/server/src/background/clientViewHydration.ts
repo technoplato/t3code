@@ -1,4 +1,5 @@
 import {
+  type AuthClientMetadata,
   CLIENT_VIEW_MAX_SELECTION_LENGTH,
   type ClientKind,
   type OrchestrationV2ConversationMessage,
@@ -24,10 +25,31 @@ const snapshotBaseFields = {
   capturedAtMs: Schema.Number,
 } as const;
 
+const NullableText = Schema.NullOr(Schema.String);
+
+/** Null where neither the client nor its sign-in said. */
+const SnapshotClient = Schema.Struct({
+  /** One per install or browser profile; windows of one desktop app share it. */
+  clientId: Schema.String,
+  /** `phone`, `tablet` or `desktop`. */
+  formFactor: NullableText,
+  os: NullableText,
+  osVersion: NullableText,
+  deviceModel: NullableText,
+  browser: NullableText,
+  appName: NullableText,
+  appVersion: NullableText,
+  /** A browser only: `hosted` or `server`. */
+  webDeployment: NullableText,
+  /** How the client reaches this server: `local`, `direct`, `relay` or `ssh`. */
+  connection: NullableText,
+});
+
 const snapshotWindowFields = {
   leaseExpiresAtMs: Schema.Number,
   clientKind: SnapshotClientKind,
-  deviceName: Schema.NullOr(Schema.String),
+  deviceName: NullableText,
+  client: SnapshotClient,
   windowId: Schema.String,
   environmentId: Schema.String,
   threadId: Schema.String,
@@ -226,9 +248,63 @@ function pendingBlockerText(data: ClientViewThreadData): string | null {
   return capText(text, MAX_PENDING_BLOCKER_LENGTH).text;
 }
 
-export function snapshotClientKind(kind: ClientKind): "desktop" | "web" | "mobile" {
+function snapshotClientKind(kind: ClientKind): "desktop" | "web" | "mobile" {
   if (kind === "desktop-renderer") return "desktop";
   return kind === "mobile" ? "mobile" : "web";
+}
+
+/** What a session's sign-in recorded about its client: all a client that sends no identity gives. */
+export type ViewSessionClient = Pick<AuthClientMetadata, "label" | "deviceType" | "os" | "browser">;
+
+function sessionFormFactor(session: ViewSessionClient | null): string | null {
+  if (session?.deviceType === "mobile") return "phone";
+  return session?.deviceType === "tablet" || session?.deviceType === "desktop"
+    ? session.deviceType
+    : null;
+}
+
+export type ViewClientDescription = Pick<
+  ActiveClientViewSnapshot,
+  "clientKind" | "deviceName" | "client"
+>;
+
+/** Which client holds the view: what it reported, then what its sign-in recorded. */
+export function describeViewClient(input: {
+  readonly tracked: Pick<TrackedClientView, "clientId" | "clientKind" | "identity">;
+  readonly session: ViewSessionClient | null;
+  /** This server's host name, for a client that runs on the same machine. */
+  readonly hostName: string | null;
+}): ViewClientDescription {
+  const { tracked, session } = input;
+  const identity = tracked.identity ?? {};
+  const clientKind = snapshotClientKind(tracked.clientKind);
+  const os = identity.os ?? session?.os ?? null;
+  // A desktop app's sign-in names the engine it embeds, which is not a browser anyone picked.
+  const browser = identity.browser ?? (clientKind === "web" ? session?.browser : null) ?? null;
+  return {
+    clientKind,
+    deviceName:
+      identity.deviceName ??
+      input.hostName ??
+      (browser !== null && os !== null ? `${browser} on ${os}` : null) ??
+      session?.label ??
+      os,
+    client: {
+      clientId: tracked.clientId,
+      formFactor:
+        identity.formFactor ??
+        sessionFormFactor(session) ??
+        (clientKind === "desktop" ? "desktop" : null),
+      os,
+      osVersion: identity.osVersion ?? null,
+      deviceModel: identity.deviceModel ?? null,
+      browser,
+      appName: identity.appName ?? null,
+      appVersion: identity.appVersion ?? null,
+      webDeployment: identity.webDeployment ?? null,
+      connection: identity.connection ?? null,
+    },
+  };
 }
 
 function epochMillis(value: DateTime.Utc | null | undefined): number | null {
@@ -238,7 +314,7 @@ function epochMillis(value: DateTime.Utc | null | undefined): number | null {
 export function hydrateActiveClientView(input: {
   readonly tracked: TrackedClientView;
   readonly thread: ClientViewThreadData;
-  readonly deviceName: string | null;
+  readonly client: ViewClientDescription;
   readonly appBundleId: string | null;
   readonly capturedAtMs: number;
 }): ActiveClientViewSnapshot {
@@ -277,8 +353,7 @@ export function hydrateActiveClientView(input: {
     state: "active",
     capturedAtMs: input.capturedAtMs,
     leaseExpiresAtMs: tracked.expiresAtMs,
-    clientKind: snapshotClientKind(tracked.clientKind),
-    deviceName: input.deviceName,
+    ...input.client,
     appBundleId: input.appBundleId,
     windowId: view.windowId,
     seq: view.seq,

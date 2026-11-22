@@ -36,14 +36,18 @@ function report(
   rpcClientId: number,
   reported: ClientView,
   nowMs = 10_000,
+  /** The client's own clock when it sent the report; the server's unless a test skews it. */
+  observedAtMs = nowMs,
 ): ClientViewRegistry {
   return upsertClientView(
     registry,
     {
       sessionId: SESSION,
       rpcClientId: RpcClientId.make(rpcClientId),
+      clientId: `client-${rpcClientId}`,
       clientKind: "web",
       view: reported,
+      observedAtMs,
       ttlMs: TTL_MS,
     },
     nowMs,
@@ -130,6 +134,52 @@ describe("client view arbitration", () => {
     registry = report(registry, 2, view({ windowId: "skewed", lastGestureAtMs: 99_999_999 }));
     registry = report(registry, 3, view({ windowId: "honest", lastGestureAtMs: 10_500 }), 11_000);
     assert.equal(winnerWindow(registry, 11_000), "honest");
+  });
+
+  it("ranks a gesture by its age, so a device with a wrong clock neither always wins nor always loses", () => {
+    const now = 10_000_000;
+    // The desktop was touched a minute ago. The phone's clock runs ten minutes behind, and it
+    // was touched a second ago.
+    let registry = report(
+      new Map(),
+      1,
+      view({ windowId: "desktop", lastGestureAtMs: now - 60_000 }),
+      now,
+    );
+    registry = report(
+      registry,
+      2,
+      view({ windowId: "phone", lastGestureAtMs: now - 601_000 }),
+      now,
+      now - 600_000,
+    );
+    assert.equal(winnerWindow(registry, now), "phone");
+
+    // Back at the desktop. The phone's next heartbeat repeats its old gesture and moves no rank.
+    registry = report(
+      registry,
+      1,
+      view({ windowId: "desktop", lastGestureAtMs: now + 5_000, seq: 1 }),
+      now + 5_000,
+    );
+    registry = report(
+      registry,
+      2,
+      view({ windowId: "phone", lastGestureAtMs: now - 601_000, seq: 1 }),
+      now + 25_000,
+      now - 575_000,
+    );
+    assert.equal(winnerWindow(registry, now + 25_000), "desktop");
+
+    // A tablet whose clock runs an hour ahead, last touched ten minutes ago, does not win.
+    registry = report(
+      registry,
+      3,
+      view({ windowId: "tablet", lastGestureAtMs: now + 3_000_000 }),
+      now + 26_000,
+      now + 3_626_000,
+    );
+    assert.equal(winnerWindow(registry, now + 26_000), "desktop");
   });
 
   it("bounds the windows one connection can hold", () => {

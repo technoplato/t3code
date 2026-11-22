@@ -10,8 +10,10 @@ import {
 
 const decodeReport = Schema.decodeUnknownSync(ClientActivityReportInput);
 
-// The report as a server built before the view existed decodes it.
-const { view: _view, ...olderFields } = ClientActivityReportInput.fields;
+// The report as servers built before the view, and before the identity, decode it.
+const { identity: _identity, ...viewOnlyFields } = ClientActivityReportInput.fields;
+const { view: _view, ...olderFields } = viewOnlyFields;
+const decodeViewOnlyReport = Schema.decodeUnknownSync(Schema.Struct(viewOnlyFields));
 const decodeOlderReport = Schema.decodeUnknownSync(Schema.Struct(olderFields));
 
 const report = {
@@ -35,18 +37,40 @@ const view = {
   selection: { itemId: "message-1", text: "selected" },
 } as const;
 
+const identity = {
+  formFactor: "tablet",
+  os: "iPadOS",
+  deviceName: "Studio iPad",
+  appName: "T3 Code",
+  connection: "relay",
+} as const;
+
 describe("ClientActivityReportInput", () => {
   it("decodes with and without a view", () => {
     expect(decodeReport(report).view).toBeUndefined();
     expect(decodeReport({ ...report, view }).view).toEqual(view);
     const { items: _items, selection: _selection, ...metadata } = view;
     expect(decodeReport({ ...report, view: metadata }).view).toEqual(metadata);
+    // A client built before the identity sends none; one built after may name values unknown here.
+    expect(decodeReport({ ...report, view }).identity).toBeUndefined();
+    expect(decodeReport({ ...report, view, identity }).identity).toEqual(identity);
+    expect(
+      decodeReport({ ...report, view, identity: { formFactor: "headset", connection: "mesh" } })
+        .identity,
+    ).toEqual({ formFactor: "headset", connection: "mesh" });
+    expect(() =>
+      decodeReport({ ...report, view, identity: { deviceName: "x".repeat(129) } }),
+    ).toThrow();
   });
 
-  it("is ignored by a server whose schema predates the view", () => {
-    const decoded = decodeOlderReport({ ...report, view });
+  it("is ignored by a server whose schema predates the view or the identity", () => {
+    const decoded = decodeOlderReport({ ...report, view, identity });
     expect(decoded).not.toHaveProperty("view");
+    expect(decoded).not.toHaveProperty("identity");
     expect(decoded.scopes).toEqual(report.scopes);
+    const viewOnly = decodeViewOnlyReport({ ...report, view, identity });
+    expect(viewOnly.view).toEqual(view);
+    expect(viewOnly).not.toHaveProperty("identity");
     // The RPC layer decodes with the default; this is the behaviour it relies on.
     expect(() => decodeOlderReport({ ...report, view }, { onExcessProperty: "error" })).toThrow();
   });

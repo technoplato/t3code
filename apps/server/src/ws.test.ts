@@ -2729,7 +2729,8 @@ it.effect(
                       : null,
                   ),
                 threadChanges: Stream.never,
-                deviceName: () => Effect.succeed("Mac Studio"),
+                sessionClient: () => Effect.succeed({ deviceType: "tablet", os: "iOS" }),
+                hostName: Effect.succeed("mac-studio.local"),
               }),
             ),
             observedFileSinkLayer,
@@ -2799,8 +2800,8 @@ it.effect(
 
       yield* client[WS_METHODS.serverReportClientActivity]({
         environmentId: envId,
-        clientId: "desktop-client",
-        clientKind: "desktop-renderer",
+        clientId: "tablet-client",
+        clientKind: "mobile",
         visible: true,
         focused: true,
         recentlyInteracted: true,
@@ -2808,6 +2809,16 @@ it.effect(
         scopes: [{ type: "provider-status" }],
         ttlMs: 45_000,
         observedAt: now,
+        identity: {
+          formFactor: "tablet",
+          os: "iPadOS",
+          osVersion: "26.1",
+          deviceName: "Studio iPad",
+          deviceModel: "iPad Pro",
+          appName: "T3 Code",
+          appVersion: "2.3.0",
+          connection: "relay",
+        },
         view: {
           windowId: "window-1",
           seq: 1,
@@ -2825,14 +2836,29 @@ it.effect(
       assert.equal(active.agentLabel, "claude_ld claude-fable-5-2");
       assert.equal(active.visibleText, "Visible end-to-end reply.");
       assert.equal(active.focusedItemId, messageId);
+      assert.equal(active.clientKind, "mobile");
+      assert.equal(active.deviceName, "Studio iPad");
+      assert.equal(active.windowId, "window-1");
+      assert.deepStrictEqual(active.client, {
+        clientId: "tablet-client",
+        formFactor: "tablet",
+        os: "iPadOS",
+        osVersion: "26.1",
+        deviceModel: "iPad Pro",
+        browser: null,
+        appName: "T3 Code",
+        appVersion: "2.3.0",
+        webDeployment: null,
+        connection: "relay",
+      });
       assert.equal((yield* fs.stat(targetPath)).mode & 0o777, 0o600);
 
       // Advance past the 1s throttle, then leave the thread to clear back to `none`.
       yield* TestClock.adjust("2 seconds");
       yield* client[WS_METHODS.serverReportClientActivity]({
         environmentId: envId,
-        clientId: "desktop-client",
-        clientKind: "desktop-renderer",
+        clientId: "tablet-client",
+        clientKind: "mobile",
         visible: true,
         focused: true,
         recentlyInteracted: true,

@@ -1,13 +1,21 @@
-import type { AuthSessionId, ClientKind, ClientView, RpcClientId } from "@t3tools/contracts";
+import type {
+  AuthSessionId,
+  ClientActivityIdentity,
+  ClientKind,
+  ClientView,
+  RpcClientId,
+} from "@t3tools/contracts";
 
 export const MAX_CLIENT_VIEWS_PER_RPC_CLIENT = 4;
 
 export interface TrackedClientView {
   readonly sessionId: AuthSessionId;
   readonly rpcClientId: RpcClientId;
+  readonly clientId: string;
   readonly clientKind: ClientKind;
+  readonly identity?: ClientActivityIdentity | undefined;
   readonly view: ClientView;
-  /** The client's gesture time, never later than this server's clock when the report arrived. */
+  /** The gesture on this server's clock: when the report arrived, less the age the client gave. */
   readonly rankedGestureAtMs: number;
   readonly updatedAtMs: number;
   readonly expiresAtMs: number;
@@ -31,11 +39,12 @@ function isLive(entry: TrackedClientView, nowMs: number): boolean {
 
 export function upsertClientView(
   registry: ClientViewRegistry,
-  report: Connection & {
-    readonly clientKind: ClientKind;
-    readonly view: ClientView;
-    readonly ttlMs: number;
-  },
+  report: Connection &
+    Pick<TrackedClientView, "clientId" | "clientKind" | "identity" | "view"> & {
+      /** The client's clock when it sent the report, the same clock its gesture time is on. */
+      readonly observedAtMs: number;
+      readonly ttlMs: number;
+    },
   nowMs: number,
 ): Map<string, TrackedClientView> {
   const next = new Map<string, TrackedClientView>();
@@ -58,12 +67,21 @@ export function upsertClientView(
     }
   }
 
+  // Two devices' clocks disagree, so only the age is taken from the client. A report that repeats
+  // a gesture keeps its rank: the time a heartbeat spent on the wire is not a newer gesture.
+  const rankedGestureAtMs =
+    existing !== undefined && existing.view.lastGestureAtMs === report.view.lastGestureAtMs
+      ? existing.rankedGestureAtMs
+      : nowMs - Math.max(0, report.observedAtMs - report.view.lastGestureAtMs);
+
   next.set(key, {
     sessionId: report.sessionId,
     rpcClientId: report.rpcClientId,
+    clientId: report.clientId,
     clientKind: report.clientKind,
+    ...(report.identity === undefined ? {} : { identity: report.identity }),
     view: report.view,
-    rankedGestureAtMs: Math.min(report.view.lastGestureAtMs, nowMs),
+    rankedGestureAtMs,
     updatedAtMs: nowMs,
     expiresAtMs: nowMs + report.ttlMs,
   });

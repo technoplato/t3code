@@ -108,7 +108,9 @@ const withExport = <A, E>(
               environmentId: Effect.succeed(LOCAL),
               readThread: (threadId) => Effect.sync(() => threads.get(threadId) ?? null),
               threadChanges: Stream.fromQueue(threadChanges),
-              deviceName: () => Effect.succeed("Mini"),
+              sessionClient: () =>
+                Effect.succeed({ label: "Paired client", deviceType: "desktop", os: "macOS" }),
+              hostName: Effect.succeed("mini.local"),
             }),
           ),
           Layer.succeed(
@@ -149,8 +151,10 @@ describe("ClientViewExport", () => {
         assert.equal(first.visibleText, "First draft of the reply.");
         assert.equal(first.threadId, THREAD);
         assert.equal(first.environmentId, LOCAL);
-        assert.equal(first.deviceName, "Mini");
+        // A desktop window that sends no identity is taken to be this machine's own app.
+        assert.equal(first.deviceName, "mini.local");
         assert.equal(first.clientKind, "desktop");
+        assert.equal(first.client.clientId, "client-1");
         assert.equal(first.appBundleId, "com.example.desktop");
         assert.equal(first.capturedAtMs, nowMs);
         assert.equal(first.leaseExpiresAtMs, nowMs + 45_000);
@@ -229,6 +233,12 @@ describe("ClientViewExport", () => {
             selection: { text: "words selected on the other server" },
           }),
           clientKind: "mobile",
+          identity: {
+            formFactor: "tablet",
+            os: "iPadOS",
+            deviceName: "Studio iPad",
+            connection: "relay",
+          },
         });
         assert.deepStrictEqual(yield* Queue.take(written), {
           version: 1,
@@ -236,11 +246,78 @@ describe("ClientViewExport", () => {
           capturedAtMs: nowMs,
           leaseExpiresAtMs: nowMs + 45_000,
           clientKind: "mobile",
-          deviceName: "Mini",
+          deviceName: "Studio iPad",
+          client: {
+            clientId: "client-1",
+            formFactor: "tablet",
+            os: "iPadOS",
+            osVersion: null,
+            deviceModel: null,
+            browser: null,
+            appName: null,
+            appVersion: null,
+            webDeployment: null,
+            connection: "relay",
+          },
           windowId: "window-1",
           environmentId: REMOTE,
           threadId: THREAD,
         });
+      }),
+    ),
+  );
+
+  it.effect("names whichever client was used last, window by window", () =>
+    withExport(({ views, written, nowMs }) =>
+      Effect.gen(function* () {
+        const who = Effect.map(Queue.take(written), (snapshot) =>
+          snapshot.state === "none"
+            ? null
+            : [snapshot.clientKind, snapshot.client.formFactor, snapshot.windowId].join(" "),
+        );
+        const desktopWindow = (rpcClientId: number, view: Parameters<typeof report>[0]) =>
+          views.reportClientActivity(SESSION, RpcClientId.make(rpcClientId), report(view));
+        const phone = (lastGestureAtMs: number) =>
+          views.reportClientActivity(AuthSessionId.make("session-phone"), RpcClientId.make(1), {
+            ...report({ windowId: "launch-1", lastGestureAtMs }),
+            clientId: "mobile-1",
+            clientKind: "mobile",
+            identity: { formFactor: "phone", os: "iOS", connection: "relay" },
+          });
+
+        yield* desktopWindow(1, { lastGestureAtMs: nowMs - 60_000 });
+        assert.equal(yield* who, "desktop desktop window-1");
+
+        // The desktop window stays open and focused while the phone is scrolled.
+        yield* TestClock.adjust("1 second");
+        yield* phone(nowMs);
+        assert.equal(yield* who, "mobile phone launch-1");
+
+        // A second window of the same desktop app shares its client id and connects on its own.
+        yield* TestClock.adjust("1 second");
+        yield* desktopWindow(2, { windowId: "window-2", lastGestureAtMs: nowMs + 1_500 });
+        const second = yield* Queue.take(written);
+        assert.equal(second.state === "none" ? null : second.windowId, "window-2");
+        assert.equal(second.state === "none" ? null : second.client.clientId, "client-1");
+
+        // Clicking back into the first window blurs the second.
+        yield* TestClock.adjust("1 second");
+        yield* desktopWindow(2, {
+          windowId: "window-2",
+          focused: false,
+          lastGestureAtMs: nowMs + 1_500,
+          seq: 1,
+        });
+        yield* desktopWindow(1, { lastGestureAtMs: nowMs + 500, seq: 1 });
+        assert.equal(yield* who, "desktop desktop window-1");
+
+        // Both windows close; the phone, silent since, holds the view until its lease lapses.
+        yield* TestClock.adjust("1 second");
+        yield* views.removeRpcClient(SESSION, RpcClientId.make(1));
+        yield* views.removeRpcClient(SESSION, RpcClientId.make(2));
+        assert.equal(yield* who, "mobile phone launch-1");
+        yield* TestClock.adjust("45 seconds");
+        assert.equal(yield* who, null);
       }),
     ),
   );
@@ -320,7 +397,8 @@ describe("ClientViewExport file", () => {
                 environmentId: Effect.succeed(LOCAL),
                 readThread: () => Effect.succeed(threadData("Never read.")),
                 threadChanges: Stream.never,
-                deviceName: () => Effect.succeed(null),
+                sessionClient: () => Effect.succeed(null),
+                hostName: Effect.succeed("mini.local"),
               }),
             ),
           ),
