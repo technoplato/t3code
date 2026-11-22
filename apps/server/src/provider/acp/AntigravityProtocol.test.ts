@@ -55,6 +55,17 @@ describe("native Antigravity subagent tools", () => {
         {},
       ),
     ).toBeUndefined();
+    // agy 1.5.14 `swarm`: only `add` starts a worker; the other actions manage the swarm.
+    const swarm = (rawInput: unknown) =>
+      classifyAntigravitySubagentToolCall(
+        { ...toolCall, title: "Run swarm", data: { rawInput } },
+        {},
+      );
+    expect(swarm({ action: "add", name: "parser", brief: "Own src/parser.rs" })).toBe("subagent");
+    for (const action of ["title", "status", "models", "model", "kill"]) {
+      expect(swarm({ action, name: "parser" })).toBeUndefined();
+    }
+    expect(swarm(undefined)).toBeUndefined();
   });
 
   it("recognizes history starts and bounds the launch output", () => {

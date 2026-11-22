@@ -541,6 +541,159 @@ it.layer(NodeServices.layer)("readAntigravityChildWork", (it) => {
     }),
   );
 
+  // Records as agy 1.5.14 wrote them for `swarm{action:"add"}`. A worker reports on a shared
+  // board, so a note in the parent's inbox says nothing about whether it still works.
+  it.effect("counts a swarm worker as at work until its own turn has ended", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const profile = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-swarm-" });
+      const brain = (...segments: ReadonlyArray<string>) =>
+        path.join(profile, "antigravity-acp", "brain", ...segments);
+      const writeJson = (segments: ReadonlyArray<string>, value: unknown) =>
+        fs
+          .makeDirectory(path.dirname(brain(...segments)), { recursive: true })
+          .pipe(Effect.andThen(fs.writeFileString(brain(...segments), JSON.stringify(value))));
+      const worker = (input: {
+        readonly id: string;
+        readonly name: string;
+        readonly callId: string;
+        readonly state?: string;
+        readonly transcript?: ReadonlyArray<Record<string, unknown>>;
+      }) =>
+        Effect.all([
+          writeJson([ROOT, ".system_generated", "subagents", `${input.id}.json`], {
+            conversationId: input.id,
+            subagentDescriptor: { typeName: "worker", role: `Swarm Worker (${input.name})` },
+            state: input.state ?? "SUBAGENT_STATE_ALIVE",
+          }),
+          writeJson([input.id, ".system_generated", "messages", "launch.json"], {
+            sender: ROOT,
+            content: `You have just started. Your assignment:\n\nOwn ${input.name}`,
+            sourceMetadata: {
+              tool: {
+                conversationId: ROOT,
+                toolCall: {
+                  id: input.callId,
+                  name: "swarm",
+                  argumentsJson: JSON.stringify({
+                    action: "add",
+                    name: input.name,
+                    brief: `Own ${input.name}`,
+                    workspace: "inherit",
+                  }),
+                },
+              },
+            },
+          }),
+          // The board rings every member the same way, whoever posted.
+          writeJson([input.id, ".system_generated", "messages", "board.json"], {
+            sender: ROOT,
+            content: "[swarm] new board message #1",
+          }),
+          input.transcript === undefined
+            ? Effect.void
+            : fs
+                .makeDirectory(brain(input.id, ".system_generated", "logs"), { recursive: true })
+                .pipe(
+                  Effect.andThen(
+                    fs.writeFileString(
+                      brain(input.id, ".system_generated", "logs", "transcript.jsonl"),
+                      input.transcript.map((line) => JSON.stringify(line)).join("\n") + "\n",
+                    ),
+                  ),
+                ),
+        ]);
+      const planner = (...names: ReadonlyArray<string>) => ({
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        tool_calls: names.map((name) => ({ name, args: {} })),
+      });
+      const result = (status = "DONE") => ({ step_index: 2, type: "GENERIC", status });
+
+      const working = "11111111-1111-4111-8111-111111111111";
+      const parked = "22222222-2222-4222-8222-222222222222";
+      const replied = "33333333-3333-4333-8333-333333333333";
+      const killed = "44444444-4444-4444-8444-444444444444";
+      const fresh = "55555555-5555-4555-8555-555555555555";
+      // Mid-turn: a command's result is in, and the model has not answered it yet.
+      yield* worker({
+        id: working,
+        name: "parser",
+        callId: "call_working",
+        transcript: [planner("run_command"), result()],
+      });
+      // Parked on the board: `swarm_wait` returned, which ends the worker's turn.
+      yield* worker({
+        id: parked,
+        name: "verifier",
+        callId: "call_parked",
+        transcript: [planner("post_message", "swarm_wait"), result(), result()],
+      });
+      // A final reply with no tool call ends a turn too.
+      yield* worker({
+        id: replied,
+        name: "docs",
+        callId: "call_replied",
+        transcript: [planner("read_file"), result(), { ...planner(), content: "Done." }],
+      });
+      yield* worker({
+        id: killed,
+        name: "monitor",
+        callId: "call_killed",
+        state: "SUBAGENT_STATE_KILLED",
+        transcript: [planner("run_command"), result()],
+      });
+      // Just added: no transcript yet.
+      yield* worker({ id: fresh, name: "lexer", callId: "call_fresh" });
+      // The working worker posted a blocker; the board rang the parent in its name.
+      yield* writeJson([ROOT, ".system_generated", "messages", "board.json"], {
+        sender: working,
+        content: "[swarm] new board message #6",
+      });
+
+      const callIds = ["call_working", "call_parked", "call_replied", "call_killed", "call_fresh"];
+      expect(
+        (yield* readAntigravityChildrenAtWork({
+          profileDirectory: profile,
+          rootSessionId: ROOT,
+          toolCallIds: callIds,
+        })).toSorted(),
+      ).toEqual(["call_fresh", "call_working"]);
+
+      // The worker's view opens like any other child's, named by its swarm name and brief.
+      const [child, ...rest] = yield* read(profile, "call_working", {
+        title: "parser",
+        prompt: "Own parser",
+      });
+      expect(rest).toEqual([]);
+      expect(child).toMatchObject({
+        conversationId: working,
+        role: "parser",
+        prompt: "Own parser",
+      });
+      // A later `swarm` call from the parent that is not an `add` launches nothing.
+      yield* writeJson([parked, ".system_generated", "messages", "model.json"], {
+        sender: ROOT,
+        sourceMetadata: {
+          tool: {
+            toolCall: {
+              id: "call_model",
+              name: "swarm",
+              argumentsJson: JSON.stringify({ action: "model", name: "verifier", model: "m" }),
+            },
+          },
+        },
+      });
+      expect(yield* read(profile, "call_model")).toEqual([]);
+      expect(
+        antigravitySubagentLaunches({ action: "add", name: "parser", brief: "Own it" }),
+      ).toEqual([{ role: "parser", prompt: "Own it" }]);
+      expect(antigravitySubagentLaunches({ action: "status" })).toBeUndefined();
+    }),
+  );
+
   it.effect("shares one transcript budget across the batch", () =>
     Effect.gen(function* () {
       const filler = JSON.stringify({

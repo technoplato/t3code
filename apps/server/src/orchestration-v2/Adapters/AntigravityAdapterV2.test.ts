@@ -2088,6 +2088,83 @@ describe("AntigravityAdapterV2 work after the prompt ends", () => {
     }).pipe(Effect.provide(layerSession)),
   );
 
+  // agy 1.5.14 `swarm{action:"add"}` returns at once and the worker runs on in its own
+  // conversation. A worker that parks without naming the coordinator wakes nobody, so no reply
+  // ever tells the adapter to look again.
+  it.effect("keeps a run open for a swarm worker and ends it once the worker parks", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const profile = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-antigravity-kids-" });
+      const records = (conversationId: string, kind: string) =>
+        path.join(profile, "antigravity-acp", "brain", conversationId, ".system_generated", kind);
+      const write = (directory: string, name: string, contents: string) =>
+        fileSystem
+          .makeDirectory(directory, { recursive: true })
+          .pipe(Effect.andThen(fileSystem.writeFileString(path.join(directory, name), contents)));
+      const add = { action: "add", name: "parser", brief: "Own the parser", workspace: "inherit" };
+      yield* write(records("mock-session-1", "subagents"), "worker-1.json", "{}");
+      yield* write(
+        records("worker-1", "messages"),
+        "launch.json",
+        JSON.stringify({
+          sender: "mock-session-1",
+          sourceMetadata: {
+            tool: {
+              toolCall: { id: "call_swarm", name: "swarm", argumentsJson: JSON.stringify(add) },
+            },
+          },
+        }),
+      );
+      const planner = (...names: ReadonlyArray<string>) =>
+        JSON.stringify({
+          step_index: 1,
+          type: "PLANNER_RESPONSE",
+          status: "DONE",
+          tool_calls: names.map((name) => ({ name, args: {} })),
+        });
+      const result = JSON.stringify({ step_index: 2, type: "GENERIC", status: "DONE" });
+      const transcript = (...lines: ReadonlyArray<string>) =>
+        write(records("worker-1", "logs"), "transcript.jsonl", `${lines.join("\n")}\n`);
+      yield* transcript(planner("run_command"));
+
+      const { offers, scheduledFinalizes, startTurn, until, throughPromptSettled } =
+        yield* openSessionWithRunningCommand({}, undefined, undefined, {
+          profileDirectory: profile,
+          initialToolCalls: [
+            {
+              sessionUpdate: "tool_call",
+              toolCallId: "call_swarm",
+              kind: "other",
+              title: "Run swarm",
+              status: "completed",
+              rawInput: add,
+            },
+          ],
+        });
+      yield* startTurn(1, false);
+      const workers = (events: ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>) =>
+        events.flatMap((event) => (event.type === "subagent.updated" ? [event.subagent] : []));
+      const prompt = yield* throughPromptSettled;
+      assert.deepEqual(
+        workers(prompt).map((worker) => [worker.title, worker.prompt, worker.status]),
+        [["parser", "Own the parser", "running"]],
+        "the worker is tracked by its swarm name and brief",
+      );
+
+      yield* TestClock.adjust("10 minutes");
+      yield* transcript(planner("post_message", "swarm_wait"), result, result);
+      yield* TestClock.adjust("1 minute");
+      assert.equal(yield* Queue.take(scheduledFinalizes), "3000 millis");
+      yield* TestClock.adjust("3 seconds");
+      const run = yield* until((event) => event.type === "turn.terminal");
+      const terminal = run.at(-1);
+      assert.equal(terminal?.type === "turn.terminal" && terminal.status, "completed");
+      assert.equal(workers(run).at(-1)?.status, "idle");
+      assert.lengthOf(offers, 0, "the open run needs no continuation");
+    }).pipe(Effect.provide(layerSession)),
+  );
+
   it.effect("ends a continuation run whose replayed reply launched a subagent", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

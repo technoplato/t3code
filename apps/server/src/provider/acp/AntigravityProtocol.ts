@@ -554,18 +554,20 @@ const ANTIGRAVITY_SUBAGENT_TITLES = new Set([
   // agy 1.5 auto-approved calls.
   "Run invoke_subagent",
 ]);
+// agy 1.5.14 reports every `swarm` action under this title; only `add` starts a worker.
+const ANTIGRAVITY_SWARM_TITLE = "Run swarm";
 
 /** The ACP agent reports subagent calls as ordinary tools without child IDs or models. */
 export function classifyAntigravitySubagentToolCall(
   toolCall: AcpToolCallState,
   rawPayload?: unknown,
 ): "subagent" | "mcp" | undefined {
-  if (
-    (toolCall.kind !== undefined && toolCall.kind !== "other") ||
-    toolCall.title === undefined ||
-    !ANTIGRAVITY_SUBAGENT_TITLES.has(toolCall.title)
-  )
+  if ((toolCall.kind !== undefined && toolCall.kind !== "other") || toolCall.title === undefined)
     return undefined;
+  if (toolCall.title === ANTIGRAVITY_SWARM_TITLE) {
+    const input = toolCall.data.rawInput;
+    if (!Predicate.isObject(input) || input.action !== "add") return undefined;
+  } else if (!ANTIGRAVITY_SUBAGENT_TITLES.has(toolCall.title)) return undefined;
   const update = Predicate.isObject(rawPayload) ? rawPayload.update : undefined;
   const meta = Predicate.isObject(update) ? update._meta : toolCall.data.meta;
   return Predicate.isObject(meta) && meta.is_mcp_tool_call === true ? "mcp" : "subagent";
