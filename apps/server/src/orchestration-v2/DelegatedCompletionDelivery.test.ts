@@ -863,6 +863,13 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
       });
       const parent = yield* orchestrator.getThreadProjection(threadId);
       const task = parent.subagents[0]!;
+      const quotaExhausted = {
+        providerInstanceId: ProviderInstanceId.make("claude_al"),
+        model: "claude-fable-5-2",
+        window: "weekly" as const,
+        modelScoped: true as const,
+        resetsAt: "2026-11-25T08:00:00.000Z",
+      };
       yield* sink.write({
         events: [
           { id: firstTaskId, result: testCase.first, status: "failed" as const },
@@ -879,6 +886,7 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
             id,
             result,
             status,
+            ...(status === "failed" ? { quotaExhausted } : {}),
             title: "Inspect regression",
             childThreadId: ThreadId.make(`thread:inline-budget-child:${id}`),
           },
@@ -910,6 +918,10 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
         `Delegated task ${deferredTaskId} (Inspect regression) in child thread thread:inline-budget-child:${deferredTaskId} [${testCase.inlineFirst ? "cancelled" : "failed"}]`,
       );
       assert.include(message.text, `Use task_status with taskId ${deferredTaskId}`);
+      assert.include(
+        message.text,
+        "[failed] quota_exhausted: provider instance claude_al hit its weekly limit for that model on claude-fable-5-2, resets 2026-11-25T08:00:00.000Z. Restart the work on another instance",
+      );
       assert.deepEqual(message.delegatedCompletion?.taskIds, [firstTaskId, secondTaskId]);
       assert.equal(
         projection.subagents.find((candidate) => candidate.id === deferredTaskId)?.result,
@@ -4413,12 +4425,23 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
                   code: "usageLimitExceeded",
                   retryable: null,
                   resetAt: DateTime.formatIso(DateTime.add(now, { minutes: 1 })),
+                  limitWindow: { kind: "weekly" },
                 },
               },
             },
           ],
         });
         yield* orchestrator.recoverDelegatedTasks;
+        const limited = yield* orchestrator.getThreadProjection(parentThreadId);
+        assert.deepEqual(
+          limited.subagents.find((task) => task.id === child.taskId)?.quotaExhausted,
+          {
+            providerInstanceId: childRun.providerInstanceId,
+            model: childRun.modelSelection.model,
+            window: "weekly",
+            resetsAt: DateTime.formatIso(DateTime.add(now, { minutes: 1 })),
+          },
+        );
         const childShell = Effect.map(orchestrator.getShellSnapshot(), (snapshot) =>
           snapshot.threads.find((thread) => thread.id === child.childThreadId),
         );
