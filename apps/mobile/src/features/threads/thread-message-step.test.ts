@@ -29,6 +29,7 @@ function fakeList(initialTop: number) {
   let top = initialTop;
   const scrolls: Array<Parameters<LegendListRef["scrollToIndex"]>[0]> = [];
   let settle = () => {};
+  let settled = Promise.resolve();
   const list = {
     getState: () => ({
       data: rows,
@@ -42,12 +43,10 @@ function fakeList(initialTop: number) {
     anchorVisibleContent: () => ({ key: "you-1", offset: top }),
     scrollToIndex: (params: Parameters<LegendListRef["scrollToIndex"]>[0]) => {
       scrolls.push(params);
-      // Settles in the same tick the test ends the scroll.
-      return {
-        then: (done: () => void) => {
-          settle = done;
-        },
-      };
+      settled = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      return settled;
     },
   } as unknown as LegendListRef;
   const stepper = createThreadMessageStepper(() => ({
@@ -63,6 +62,7 @@ function fakeList(initialTop: number) {
     settleAt: (nextTop: number) => {
       top = nextTop;
       settle();
+      return settled;
     },
   };
 }
@@ -85,17 +85,17 @@ describe("createThreadMessageStepper", () => {
     expect(scrolls).toEqual([{ index: 6, viewPosition: 0, viewOffset: 16, animated: false }]);
   });
 
-  it("steps on from a row still scrolling into place, and from one resting near its line", () => {
+  it("steps on from a row still scrolling into place, and from one resting near its line", async () => {
     const list = fakeList(3000);
     list.stepper.step("previous", "any");
     list.stepper.step("previous", "user");
     expect(list.scrolls.map((scroll) => scroll.index)).toEqual([6, 5]);
 
     // you-2 comes to rest 6pt past its line (960 - 100 - 16) once the rows above are measured.
-    list.settleAt(850);
+    await list.settleAt(850);
     expect(list.stepper.step("previous", "any")).toBe("row");
     expect(list.scrolls.at(-1)?.index).toBe(3);
-    list.settleAt(3000);
+    await list.settleAt(3000);
     // Scrolled away by hand: the step counts from the screen again.
     expect(list.stepper.step("next", "any")).toBe("end");
   });

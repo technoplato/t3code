@@ -83,6 +83,11 @@ to show only actions.
 
 In a new thread, `Cmd+Shift+H` moves the draft to the next machine.
 
+In a thread, `Cmd+Up` and `Cmd+Down` jump to the start of the previous or next
+message. On a touch screen, scroll up and use the up and down buttons beside the
+scroll-to-end button; touch and hold one to step only through your messages or
+only through responses.
+
 In the composer, Return sends and `Shift+Return` inserts a new line. While a
 turn is running, `Cmd+Return` sends with the other follow-up action. To make
 Return insert a new line instead, change the Return key behavior in Settings →
@@ -92,6 +97,7 @@ Keyboard; `Cmd+Return` then sends.
 
 With a hardware keyboard, the composer handles Return as on iPad, with `Ctrl` in
 place of `Cmd`. The on-screen keyboard's Return always inserts a new line.
+`Ctrl+Up` and `Ctrl+Down` jump between messages in a thread, as on iPad.
 
 ## Edit the configuration file
 
