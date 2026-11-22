@@ -1,12 +1,13 @@
 import { msg, T, useGT, useMessages } from "gt-react-native";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import type { ToolCallVisibility, WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import { AsyncResult } from "effect/reactivity";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../../../components/ui/AppText";
 import { ListChoiceRow } from "../../../../components/ui/ListChoiceRow";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../../../state/preferences";
+import { useAtomCommand } from "../../../../state/use-atom-command";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 
@@ -32,7 +33,7 @@ const WORK_LOG_SCROLL_HEIGHT_OPTIONS: ReadonlyArray<{
 export function ToolCallsAppearanceSection() {
   const gt = useGT();
   const m = useMessages();
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const preferences = useAtomValue(mobilePreferencesAtom);
   const loaded = AsyncResult.isSuccess(preferences);
   const selected = loaded ? (preferences.value.toolCallVisibility ?? "showAll") : null;
@@ -55,7 +56,9 @@ export function ToolCallsAppearanceSection() {
               selected={selected === option.value}
               separated={index > 0}
               disabled={selected === null}
-              onPress={() => savePreferences({ toolCallVisibility: option.value })}
+              onPress={() => {
+                void savePreferences({ toolCallVisibility: option.value });
+              }}
             />
           ))}
         </SettingsSection>
@@ -74,14 +77,18 @@ export function ToolCallsAppearanceSection() {
             subtitle={gt("Open agent thinking and reasoning traces automatically")}
             value={expandThinkingByDefault}
             disabled={!loaded}
-            onValueChange={(value) => savePreferences({ expandThinkingByDefault: value })}
+            onValueChange={(value) => {
+              void savePreferences({ expandThinkingByDefault: value });
+            }}
           />
           <SettingsSwitchRow
             label={gt("Expand tool calls by default")}
             subtitle={gt("Open tool call groups and completed turn summaries automatically")}
             value={expandToolCallsByDefault}
             disabled={!loaded}
-            onValueChange={(value) => savePreferences({ expandToolCallsByDefault: value })}
+            onValueChange={(value) => {
+              void savePreferences({ expandToolCallsByDefault: value });
+            }}
           />
         </SettingsSection>
       </View>
@@ -95,7 +102,9 @@ export function ToolCallsAppearanceSection() {
               selected={workLogScrollHeight === option.value}
               separated={index > 0}
               disabled={workLogScrollHeight === null}
-              onPress={() => savePreferences({ workLogScrollHeight: option.value })}
+              onPress={() => {
+                void savePreferences({ workLogScrollHeight: option.value });
+              }}
             />
           ))}
         </SettingsSection>

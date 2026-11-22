@@ -60,7 +60,7 @@ import {
   SimpleWorkEntryRow,
 } from "./TimelineWorkEntryRow";
 import {
-  thoughtPreviewPlugins,
+  thoughtPreviewMarkdown,
   THOUGHT_PREVIEW_SOURCE_MAX_LENGTH,
   toolGroupSummaryIconName,
   workEntryIconName,
@@ -689,7 +689,7 @@ export function LiveWorkEntryTimelineRow({
                 text={thoughtLine}
                 cwd={ctx.markdownCwd}
                 parseRawHtml={false}
-                extraRemarkPlugins={thoughtPreviewPlugins(gt("Thought"))}
+                extensions={thoughtPreviewMarkdown(gt("Thought"))}
               />
             </span>
           }
@@ -710,10 +710,10 @@ export function LiveWorkEntryTimelineRow({
               text={(row.entry.detail ?? label).slice(0, THOUGHT_PREVIEW_SOURCE_MAX_LENGTH)}
               cwd={ctx.markdownCwd}
               parseRawHtml={false}
-              extraRemarkPlugins={
+              extensions={
                 row.active
-                  ? thoughtPreviewPlugins(gt("Thinking"))
-                  : thoughtPreviewPlugins(gt("Thought"))
+                  ? thoughtPreviewMarkdown(gt("Thinking"))
+                  : thoughtPreviewMarkdown(gt("Thought"))
               }
             />
           ) : threadLabel ? (
