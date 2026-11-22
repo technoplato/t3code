@@ -244,6 +244,7 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
+import * as ClientViewExport from "./background/ClientViewExport.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
@@ -1579,13 +1580,19 @@ export const layerWsRpc = (
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
+      const clientViewExport = yield* ClientViewExport.ClientViewExport;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
           Effect.flatMap((clientIds) =>
             Effect.forEach(
               clientIds,
-              (clientId) => backgroundPolicy.removeRpcClient(currentSessionId, clientId),
+              (clientId) =>
+                backgroundPolicy
+                  .removeRpcClient(currentSessionId, clientId)
+                  .pipe(
+                    Effect.andThen(clientViewExport.removeRpcClient(currentSessionId, clientId)),
+                  ),
               {
                 discard: true,
               },
@@ -2799,6 +2806,14 @@ export const layerWsRpc = (
           }).pipe(
             Effect.andThen(
               backgroundPolicy.reportClientActivity(
+                currentSessionId,
+                RpcClientId.make(metadata.client.id),
+                input,
+              ),
+            ),
+            // Apart from the lease: the background policy never reads the view.
+            Effect.andThen(
+              clientViewExport.reportClientActivity(
                 currentSessionId,
                 RpcClientId.make(metadata.client.id),
                 input,

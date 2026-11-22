@@ -825,6 +825,31 @@ type MessagesTimelineRowContent =
       mcpApp: McpAppReference;
     };
 
+/**
+ * The record a row shows, by an id its server can look up: a message, a turn item or a plan.
+ * Null for rows that are only chrome, such as a fold or the working indicator.
+ */
+export function timelineRowViewItem(
+  row: MessagesTimelineRow,
+): { readonly id: string; readonly kind: string } | null {
+  switch (row.kind) {
+    case "message":
+      return row.message.role === "system" ? null : { id: row.message.id, kind: row.message.role };
+    case "proposed-plan":
+      return { id: row.proposedPlan.id, kind: "plan" };
+    case "event":
+      return { id: row.projectedItem.item.id, kind: row.projectedItem.item.type };
+    case "work": {
+      const [entry] = row.groupedEntries;
+      return entry ? { id: entry.projectedItem?.item.id ?? entry.id, kind: "tool" } : null;
+    }
+    case "work-live":
+      return { id: row.entry.projectedItem?.item.id ?? row.entry.id, kind: "tool" };
+    default:
+      return null;
+  }
+}
+
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
   result: MessagesTimelineRow[];

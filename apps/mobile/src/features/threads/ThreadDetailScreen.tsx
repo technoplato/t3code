@@ -159,6 +159,8 @@ import {
   pendingThreadMessageJump,
   subscribeThreadMessageJump,
 } from "./threadMessageJump";
+import { readThreadFeedView } from "./thread-feed-view";
+import { recordClientViewGesture, viewThread } from "../../connection/client-view";
 import {
   clearThreadComposerError,
   threadComposerErrorsAtom,
@@ -625,6 +627,17 @@ function ThreadDetailBody(
     selectedThreadKey,
     props.selectedThread.pendingBackgroundTasks,
     useDeadlinePassed(statusRequest?.retryAt ?? null),
+  );
+  // While this screen has focus, the client view reporter reads its feed's visible rows.
+  const viewedEnvironmentId = props.selectedThreadDetailRef?.environmentId;
+  const viewedThreadId = props.selectedThreadDetailRef?.threadId;
+  useFocusEffect(
+    useCallback(() => {
+      if (viewedEnvironmentId === undefined || viewedThreadId === undefined) return;
+      return viewThread({ environmentId: viewedEnvironmentId, threadId: viewedThreadId }, () =>
+        readThreadFeedView(listRef.current?.getState()),
+      );
+    }, [viewedEnvironmentId, viewedThreadId]),
   );
   const [lifecycleNow, setLifecycleNow] = useState(() => new Date().toISOString());
   useFocusEffect(
@@ -1505,7 +1518,7 @@ function ThreadDetailBody(
   };
 
   return (
-    <View className="flex-1" onLayout={handleScreenLayout}>
+    <View className="flex-1" onLayout={handleScreenLayout} onTouchStart={recordClientViewGesture}>
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
       {props.draftMode ? (
         props.draftMode.content(

@@ -45,6 +45,7 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
@@ -91,10 +92,17 @@ import {
   TIMELINE_MINIMAP_TARGET_OFFSET,
   timelineTurnFoldRunIdsByEntryId,
   liveAnswerPreview,
+  timelineRowViewItem,
   type MessagesTimelineRow,
   type TimelineLatestRun,
 } from "./MessagesTimeline.logic";
 import { type ThreadFindMatch } from "./threadFind";
+import {
+  messageJumpRowIndex,
+  pendingThreadMessageJump,
+  subscribeThreadMessageJump,
+} from "./threadMessageJump";
+import { useTimelineMessageJump } from "./useTimelineMessageJump";
 import { useThreadFindNavigation } from "./useThreadFindNavigation";
 import { TooltipScrollDismissArea } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
@@ -698,7 +706,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   const toolCallVisibility =
     findActive && preferredToolCallVisibility === "zen" ? "hideAll" : preferredToolCallVisibility;
-  const revealedMessageId = citationRequest?.citation.messageId ?? null;
+  const jumpMessageId = useSyncExternalStore(subscribeThreadMessageJump, () =>
+    pendingThreadMessageJump(routeThreadKey),
+  );
+  // The turn a jump unfolded stays open after the jump finishes.
+  const [revealedJumpMessageId, setRevealedJumpMessageId] = useState<MessageId | null>(null);
+  if (jumpMessageId !== null && revealedJumpMessageId !== jumpMessageId) {
+    setRevealedJumpMessageId(jumpMessageId);
+  }
+  const revealedMessageId = citationRequest?.citation.messageId ?? revealedJumpMessageId;
   // Imported turns and post-steer work fold under synthetic keys, not the entries' run ids.
   const findFoldRunIds = findActive
     ? timelineTurnFoldRunIdsByEntryId({
@@ -1409,6 +1425,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
     contentInsetEndAdjustment,
   });
 
+  useTimelineMessageJump({
+    threadKey: routeThreadKey,
+    messageId: jumpMessageId,
+    rowIndex: jumpMessageId === null ? -1 : messageJumpRowIndex(rows, jumpMessageId),
+    // After the opening restore, which would otherwise pull the list back.
+    listReady: findListReady && !restoringThreadPosition,
+    listRef,
+    viewport: timelineViewportElement,
+    history: historyControls,
+    navigate: navigateTimeline,
+  });
+
   useThreadFindNavigation({
     // Find reveals its match only after the opening restore settles; both
     // scroll the list directly, so the restore would otherwise pull it back.
@@ -1716,6 +1744,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
   const isExpandedToolGroupHeader =
     (row.kind === "work-toggle" || row.kind === "work-live" || row.kind === "thinking") &&
     row.expanded === true;
+  const viewItem = timelineRowViewItem(row);
 
   return (
     <div
@@ -1749,6 +1778,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : undefined
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
+      data-view-item-id={viewItem?.id}
+      data-view-item-kind={viewItem?.kind}
     >
       {isWorkLogRow ? (
         <WorkLogBlock

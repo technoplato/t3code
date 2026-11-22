@@ -51,6 +51,7 @@ import { TimelineRowCtx } from "./timelineRowContext";
 import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import { countThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
 import { collectThreadFindRanges } from "./threadFindHighlights";
+import { pendingThreadMessageJump, requestThreadMessageJump } from "./threadMessageJump";
 import { toastManager } from "../ui/toast";
 import type { CitedHistory } from "./citationProcedure";
 import type { TimelineNavigation } from "./timelineViewport";
@@ -1376,6 +1377,49 @@ describe("MessagesTimeline citations", () => {
     );
     await expect.element(screen.getByText("the cited answer")).toBeVisible();
     expect(toast).not.toHaveBeenCalled();
+  });
+});
+
+describe("MessagesTimeline linked message", () => {
+  it("opens at a linked message, and at the end when the thread does not hold it", async () => {
+    const entries = Array.from({ length: 60 }, (_, index) =>
+      message(
+        `Message number ${index}\n\n${"A paragraph of filler text.\n\n".repeat(6)}`,
+        { role: index % 2 === 0 ? "user" : "assistant" },
+        `linked-${index}`,
+      ),
+    );
+    const isShown = (messageId: string) => {
+      const row = document.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+      const viewport = document.querySelector<HTMLElement>(".messages-timeline-scroll");
+      if (!row || !viewport) return false;
+      const rect = row.getBoundingClientRect();
+      const view = viewport.getBoundingClientRect();
+      return rect.top >= view.top && rect.top < view.bottom;
+    };
+
+    const linked = baseProps();
+    requestThreadMessageJump(linked.routeThreadKey, MessageId.make("linked-7"));
+    {
+      await using _screen = await renderElement(
+        <MessagesTimeline {...linked} timelineEntries={entries} />,
+      );
+      await vi.waitFor(() => {
+        expect(isShown("linked-7")).toBe(true);
+        expect(pendingThreadMessageJump(linked.routeThreadKey)).toBeNull();
+      });
+    }
+
+    // A link to a message the thread does not hold ends without moving the list.
+    const missing = baseProps();
+    requestThreadMessageJump(missing.routeThreadKey, MessageId.make("linked-missing"));
+    await using _screen = await renderElement(
+      <MessagesTimeline {...missing} timelineEntries={entries} />,
+    );
+    await vi.waitFor(() => {
+      expect(pendingThreadMessageJump(missing.routeThreadKey)).toBeNull();
+      expect(isShown("linked-59")).toBe(true);
+    });
   });
 });
 

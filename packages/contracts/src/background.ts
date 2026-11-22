@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import {
   AuthSessionId,
   EnvironmentId,
+  NonNegativeInt,
   RpcClientId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -64,6 +65,48 @@ export type ClientKind = typeof ClientKind.Type;
 export const ClientActivityClientId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export type ClientActivityClientId = typeof ClientActivityClientId.Type;
 
+export const CLIENT_VIEW_MAX_ITEMS = 12;
+export const CLIENT_VIEW_MAX_SELECTION_LENGTH = 2048;
+
+const ClientViewFraction = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
+const ClientViewItemId = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256));
+
+/** One timeline item in the viewport; `from` and `to` bound the part of it that shows. */
+export const ClientViewItem = Schema.Struct({
+  id: ClientViewItemId,
+  kind: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
+  from: ClientViewFraction,
+  to: ClientViewFraction,
+});
+export type ClientViewItem = typeof ClientViewItem.Type;
+
+export const ClientViewSelection = Schema.Struct({
+  itemId: Schema.optionalKey(ClientViewItemId),
+  text: Schema.String.check(Schema.isMaxLength(CLIENT_VIEW_MAX_SELECTION_LENGTH)),
+});
+export type ClientViewSelection = typeof ClientViewSelection.Type;
+
+/**
+ * The thread one window shows. Every connected server hears which environment and thread;
+ * `items` and `selection` go only to the server that owns `environmentId`.
+ */
+export const ClientView = Schema.Struct({
+  windowId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  /** Rises with each change in one window, so a server can drop a report that arrives late. */
+  seq: NonNegativeInt,
+  focused: Schema.Boolean,
+  /** The user's last pointer, wheel, key, touch or selection input; rendering never moves it. */
+  lastGestureAtMs: Schema.Number.check(Schema.isFinite()),
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  /** Top to bottom. */
+  items: Schema.optionalKey(
+    Schema.Array(ClientViewItem).check(Schema.isMaxLength(CLIENT_VIEW_MAX_ITEMS)),
+  ),
+  selection: Schema.optionalKey(ClientViewSelection),
+});
+export type ClientView = typeof ClientView.Type;
+
 export const ClientActivityReportInput = Schema.Struct({
   environmentId: Schema.optionalKey(EnvironmentId),
   clientId: ClientActivityClientId,
@@ -76,6 +119,8 @@ export const ClientActivityReportInput = Schema.Struct({
   scopes: Schema.Array(BackgroundScope),
   ttlMs: Schema.optionalKey(Schema.Number),
   observedAt: Schema.DateTimeUtc,
+  /** Top level, not a scope: scopes are filtered per server, and every server hears the view. */
+  view: Schema.optionalKey(ClientView),
 });
 export type ClientActivityReportInput = typeof ClientActivityReportInput.Type;
 

@@ -109,6 +109,8 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** Writes the thread a client shows to `client-view.json` in the state directory. Off unless set. */
+    readonly exportClientView?: boolean | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (

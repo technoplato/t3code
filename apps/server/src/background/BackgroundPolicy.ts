@@ -41,6 +41,10 @@ export class BackgroundPolicy extends Context.Service<
 
 const DEFAULT_LEASE_TTL_MS = 45_000;
 const MAX_LEASE_TTL_MS = 120_000;
+
+export function resolveLeaseTtlMs(ttlMs: number | undefined): number {
+  return Math.min(Math.max(ttlMs ?? DEFAULT_LEASE_TTL_MS, 1_000), MAX_LEASE_TTL_MS);
+}
 export const MAX_CLIENT_ACTIVITY_LEASES_PER_RPC_CLIENT = 16;
 
 function scopeKey(scope: BackgroundScope): string {
@@ -215,7 +219,7 @@ export const make = Effect.fn("background.policy.make")(function* () {
   const reportClientActivity: BackgroundPolicy["Service"]["reportClientActivity"] = Effect.fn(
     "BackgroundPolicy.reportClientActivity",
   )(function* (sessionId, rpcClientId, input) {
-    const ttlMs = Math.min(Math.max(input.ttlMs ?? DEFAULT_LEASE_TTL_MS, 1_000), MAX_LEASE_TTL_MS);
+    const ttlMs = resolveLeaseTtlMs(input.ttlMs);
     const now = yield* DateTime.now;
     const expiresAt = DateTime.add(now, { milliseconds: ttlMs });
     const lease: ClientActivityLease = {

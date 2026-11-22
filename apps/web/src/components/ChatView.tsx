@@ -212,6 +212,7 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
+import { viewThread } from "~/lib/clientViewReporter";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { toastManager } from "./ui/toast";
@@ -2937,6 +2938,15 @@ export default function ChatView(props: ChatViewProps) {
   const closeActiveRightPanelSurfaceStable = useStableCallback(() => {
     if (activeRightPanelSurface) closeRightPanelSurface(activeRightPanelSurface);
   });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the client view reporter, which lives outside React, which thread this window shows
+  useEffect(() => {
+    if (embedded || backgroundThread || !isServerThread) return;
+    return viewThread(
+      { environmentId, threadId },
+      () => legendListRef.current?.getScrollableNode() ?? null,
+    );
+  }, [embedded, backgroundThread, isServerThread, environmentId, threadId]);
 
   // A focused desktop browser page forwards these chords as menu actions.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to desktop bridge menu actions that toggle or close the right panel

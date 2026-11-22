@@ -16,12 +16,14 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AppState } from "react-native";
 
+import { uuidv4 } from "../lib/uuid";
 import * as MobileStorage from "../persistence/mobile-storage";
 import {
   observeMobileBackgroundActivitySubscription,
   onRetainedMobileBackgroundScopesChange,
   retainedMobileBackgroundScopes,
 } from "./background-activity-scopes";
+import { clientViewFor, observeClientView } from "./client-view";
 
 const REPORT_INTERVAL_MS = 25_000;
 // Shorter than the interval, so a report that never settles cannot hold up the next one.
@@ -36,6 +38,30 @@ function normalizeAppState(
   return "unknown";
 }
 
+function createActivityReport(input: {
+  readonly environmentId: EnvironmentId;
+  readonly clientId: string;
+  readonly appState: string | null | undefined;
+  readonly observedAtMs: number;
+}): ClientActivityReportInput {
+  const active = input.appState === "active";
+  const view = clientViewFor(input.environmentId);
+  return {
+    environmentId: input.environmentId,
+    clientId: input.clientId,
+    clientKind: "mobile",
+    visible: active,
+    focused: active,
+    recentlyInteracted: active,
+    appState: normalizeAppState(input.appState),
+    scopes: [...BASELINE_SCOPES, ...retainedMobileBackgroundScopes(input.environmentId)],
+    ttlMs: LEASE_TTL_MS,
+    observedAt: DateTime.makeUnsafe(input.observedAtMs),
+    // Rides on the full report: a server that predates the view reads the rest as before.
+    ...(view === undefined ? {} : { view }),
+  };
+}
+
 export const layerObserver = Layer.succeed(
   EnvironmentRpcSubscriptionObserver,
   EnvironmentRpcSubscriptionObserver.of({
@@ -46,6 +72,7 @@ export const layerObserver = Layer.succeed(
 export const layerReporter = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+    const clock = yield* Clock.Clock;
     const storage = yield* MobileStorage.MobileStorage;
     const clientId = yield* storage.loadOrCreateAgentAwarenessDeviceId.pipe(
       Effect.map((deviceId) => `mobile-${deviceId}`),
@@ -57,7 +84,6 @@ export const layerReporter = Layer.effectDiscard(
 
     const report = Effect.gen(function* () {
       const observedAtMs = yield* Clock.currentTimeMillis;
-      const active = appState === "active";
       const entries = yield* SubscriptionRef.get(registry.entries);
       yield* Effect.forEach(
         entries.keys(),
@@ -65,21 +91,15 @@ export const layerReporter = Layer.effectDiscard(
           registry
             .run(
               environmentId,
-              request(WS_METHODS.serverReportClientActivity, {
-                environmentId: environmentId as EnvironmentId,
-                clientId,
-                clientKind: "mobile",
-                visible: active,
-                focused: active,
-                recentlyInteracted: active,
-                appState: normalizeAppState(appState),
-                scopes: [
-                  ...BASELINE_SCOPES,
-                  ...retainedMobileBackgroundScopes(environmentId as EnvironmentId),
-                ],
-                ttlMs: LEASE_TTL_MS,
-                observedAt: DateTime.makeUnsafe(observedAtMs),
-              }),
+              request(
+                WS_METHODS.serverReportClientActivity,
+                createActivityReport({
+                  environmentId: environmentId as EnvironmentId,
+                  clientId,
+                  appState,
+                  observedAtMs,
+                }),
+              ),
             )
             // Not `ignore`: tearing down an environment mid-request interrupts its report,
             // and an interrupt leaking out here would end the reporting loop for good.
@@ -92,15 +112,23 @@ export const layerReporter = Layer.effectDiscard(
     yield* Effect.acquireRelease(
       Effect.sync(() => {
         const removeScopeListener = onRetainedMobileBackgroundScopesChange(requestReport);
+        const clientView = observeClientView({
+          windowId: uuidv4(),
+          nowMs: () => clock.currentTimeMillisUnsafe(),
+          readFocused: () => appState === "active",
+          onChange: requestReport,
+        });
         const subscription = AppState.addEventListener("change", (nextState) => {
           appState = nextState;
+          clientView.refresh();
           requestReport();
         });
-        return { removeScopeListener, subscription };
+        return { removeScopeListener, clientView, subscription };
       }),
-      ({ removeScopeListener, subscription }) =>
+      ({ removeScopeListener, clientView, subscription }) =>
         Effect.sync(() => {
           removeScopeListener();
+          clientView.stop();
           subscription.remove();
         }),
     );

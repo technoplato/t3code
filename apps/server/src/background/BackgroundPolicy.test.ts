@@ -1,7 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
+  EnvironmentId,
   RpcClientId,
+  ThreadId,
   type HostPowerSnapshot,
   type ClientActivityReportInput,
 } from "@t3tools/contracts";
@@ -83,6 +85,40 @@ describe("BackgroundPolicy", () => {
       assert.equal(snapshot.activeForegroundLeaseCount, 0);
       assert.deepStrictEqual(snapshot.activeScopeKeys, []);
       assert.equal(snapshot.shouldRunOpportunisticWork, false);
+    }).pipe(Effect.provide(layerFor(nominalHostPower))),
+  );
+
+  it.effect("decides the same with or without a view on the report", () =>
+    Effect.gen(function* () {
+      const policy = yield* BackgroundPolicy.BackgroundPolicy;
+      const sessionId = AuthSessionId.make("session-1");
+      // Backgrounded by the lease's own fields, while the view says focused and just used.
+      const idle = makeReport({ visible: false, focused: false, recentlyInteracted: false });
+      yield* policy.reportClientActivity(sessionId, RpcClientId.make(1), idle);
+      const before = yield* policy.snapshot;
+      const scopedBefore = yield* policy.shouldRunScopeWork({ type: "vcs-status", cwd: "/repo" });
+
+      yield* policy.reportClientActivity(sessionId, RpcClientId.make(1), {
+        ...idle,
+        view: {
+          windowId: "window-1",
+          seq: 1,
+          focused: true,
+          lastGestureAtMs: DateTime.toEpochMillis(TEST_NOW),
+          environmentId: EnvironmentId.make("environment-1"),
+          threadId: ThreadId.make("thread-1"),
+          items: [{ id: "message-1", from: 0, to: 1 }],
+        },
+      });
+      const after = yield* policy.snapshot;
+
+      assert.deepStrictEqual(after, before);
+      assert.equal(after.shouldRunOpportunisticWork, false);
+      assert.equal(after.activeForegroundLeaseCount, 0);
+      assert.equal(
+        yield* policy.shouldRunScopeWork({ type: "vcs-status", cwd: "/repo" }),
+        scopedBefore,
+      );
     }).pipe(Effect.provide(layerFor(nominalHostPower))),
   );
 

@@ -19,6 +19,7 @@ import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
+import { clientViewFor, observeClientView } from "./clientViewReporter";
 import { randomUUID } from "./utils";
 
 const CLIENT_ID_STORAGE_KEY = "t3.backgroundActivity.clientId";
@@ -95,6 +96,7 @@ function createActivityReport(
       scopes.push(entry.scope);
     }
   }
+  const view = clientViewFor(environmentId);
   return {
     environmentId,
     clientId: getClientId(),
@@ -106,6 +108,8 @@ function createActivityReport(
     scopes,
     ttlMs: LEASE_TTL_MS,
     observedAt: DateTime.makeUnsafe(observedAtMs),
+    // Rides on the full report: a server that predates the view reads the rest as before.
+    ...(view === undefined ? {} : { view }),
   };
 }
 
@@ -215,6 +219,15 @@ export const layer = Layer.effectDiscard(
       );
     }).pipe(Effect.withSpan("web.backgroundActivity.report"));
 
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        observeClientView({
+          nowMs: () => clock.currentTimeMillisUnsafe(),
+          onChange: requestReport,
+        }),
+      ),
+      (stop) => Effect.sync(stop),
+    );
     yield* Effect.acquireRelease(
       Effect.sync(() => {
         retainedScopeListeners.add(requestReport);

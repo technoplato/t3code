@@ -72,6 +72,7 @@ import {
   resolvePendingThreadPromptLink,
   takeThreadPromptLink,
 } from "./features/prompt-links/threadPromptLink";
+import { takeThreadMessageLink } from "./features/threads/threadMessageLink";
 import {
   disposeOnFoundationReplace,
   type FoundationHotModule,
@@ -130,6 +131,7 @@ function getAppStateFromPath(path: string, options: Parameters<typeof getStateFr
     (state) => restoreDraftLinkState(state, path),
     (state) => restoreSettingsLinkState(state, settingsLinkPage()),
     takeThreadPromptLink,
+    takeThreadMessageLink,
     takeNewTaskPromptLink,
     withoutPairingTarget,
     startDevAutoConnect,

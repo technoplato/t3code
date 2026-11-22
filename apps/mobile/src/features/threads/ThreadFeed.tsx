@@ -247,6 +247,7 @@ import {
   type ThreadFeedLatestRun,
   messageFoldRunId,
 } from "../../lib/threadActivity";
+import { touchClientView } from "../../connection/client-view";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { type ThreadWorkGroupScrollPosition } from "./thread-feed-scroll-position";
 import {
@@ -3919,6 +3920,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       event.nativeEvent.contentOffset.y + (usesNativeAutomaticInsets ? barInset : 0) > 6,
     );
     handleMetricsChange();
+    // Not a gesture: a streaming reply scrolls the feed too.
+    touchClientView();
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the list's end state to report it to the parent
   useLayoutEffect(() => {
