@@ -3180,7 +3180,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "auf dem Computer, der diese Seite geöffnet hat"]
+      "c": [
+        " ",
+        "auf dem Computer, der diese Seite geöffnet hat"
+      ]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3192,7 +3195,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "· wer es ausführt, erhält diesen Zugriff"]
+      "c": [
+        " ",
+        "· wer es ausführt, erhält diesen Zugriff"
+      ]
     }
   ],
   "c54cc9c75db9dc58": "Genehmige nur eine Anmeldung, die du gerade selbst gestartet hast.",
@@ -12192,6 +12198,17 @@
   "c6cf1b06e0433ca3": "Einrichtungsfortschritt",
   "e0167c02ca493094": "{step}, Schritt {number}, {summary}",
   "6389dee75a7cb536": "{step}, Schritt {number}",
+  "97823d9ea05f1d3e": "Soonest reset",
+  "6b204e7db3da10b5": "Session, most left",
+  "8d598d553a91287a": "Session, most used",
+  "426c0be1f963d8d6": "Week, most left",
+  "a14cd93a854b1514": "Week, most used",
+  "e376dc184e1b2895": "Week, soonest reset",
+  "e3c881b1e179eed2": "Sort and filter accounts",
+  "c5f8382d31188e50": "Sort accounts",
+  "beda5dd7c6e9b367": "Hide accounts with",
+  "c88a27a0b8ab2ced": "Empty sessions",
+  "e7cda30a6f258f8a": "Empty weeks",
   "5434b97f68b55d8f": "Über dem Tempo: Verbrauch schneller als das Zeitfenster vergeht",
   "4e518c48e00f45a9": "Im Tempo des Zeitfensters",
   "53e1b6487b5ddd6a": "Unter dem Tempo: Spielraum für den Rest des Zeitfensters",
@@ -12225,6 +12242,9 @@
   "4df3ff1be768a7ab": "{name}: {remaining} % übrig",
   "7aaaff1c6484f25c": "Segment",
   "8bcab2ef61de6518": "0-$-Limit",
+  "8488e046cbf3bd18": "{count} hidden: empty sessions and empty weeks",
+  "81ef75af0d6ff467": "{count, plural, one {{count} empty session hidden} other {{count} empty sessions hidden}}",
+  "e3b4eed7a3aea987": "{count, plural, one {{count} empty week hidden} other {{count} empty weeks hidden}}",
   "a16b48709357a5a7": "Nutzung verwalten",
   "a00e74aaa421c524": "übrig",
   "8bd6f07136317c8f": "Kein Anbieter in den ausgewählten Umgebungen meldet Abo-Limits.",

@@ -6,6 +6,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { SavedViewIdentity } from "@t3tools/client-runtime/saved-views";
+import { LimitAccountsView } from "@t3tools/client-runtime/state/usage-limit-accounts";
 import {
   EnvironmentId,
   IssueInvolvement,
@@ -73,6 +74,7 @@ const isIssueSavedView = Schema.is(IssueSavedView);
 export const ThreadSettingsModelSort = Schema.Literals(["default", "mostRemaining"]);
 export type ThreadSettingsModelSort = typeof ThreadSettingsModelSort.Type;
 const isThreadSettingsModelSort = Schema.is(ThreadSettingsModelSort);
+const isLimitAccountsView = Schema.is(LimitAccountsView);
 
 const ThreadListFilters = Schema.Struct({
   environmentId: Schema.NullOr(EnvironmentId),
@@ -183,6 +185,8 @@ export interface Preferences {
   readonly workingShelfEnabled?: boolean;
   readonly inboxSortOrder?: SidebarInboxSortOrder;
   readonly threadSettingsModelSort?: ThreadSettingsModelSort;
+  /** Sort, filters and manual order of the accounts on the usage Limits view. */
+  readonly usageLimitAccounts?: LimitAccountsView;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -280,6 +284,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workingShelfEnabled?: boolean;
     inboxSortOrder?: SidebarInboxSortOrder;
     threadSettingsModelSort?: ThreadSettingsModelSort;
+    usageLimitAccounts?: LimitAccountsView;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -429,6 +434,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isThreadSettingsModelSort(parsed.threadSettingsModelSort)) {
     preferences.threadSettingsModelSort = parsed.threadSettingsModelSort;
+  }
+  if (isLimitAccountsView(parsed.usageLimitAccounts)) {
+    preferences.usageLimitAccounts = parsed.usageLimitAccounts;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;

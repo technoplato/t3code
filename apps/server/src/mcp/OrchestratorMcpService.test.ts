@@ -513,6 +513,131 @@ describe("OrchestratorMcpService", () => {
     }),
   );
 
+  it.effect("reports a child that failed on a usage limit as quota-exhausted", () =>
+    Effect.gen(function* () {
+      const parentThreadId = ThreadId.make("thread:mcp-quota-parent");
+      const childThreadId = ThreadId.make("thread:mcp-quota-child");
+      const childRunId = RunId.make("run:mcp-quota-child");
+      const childRootId = NodeId.make("node:mcp-quota-child-root");
+      const taskId = NodeId.make("node:mcp-quota-task");
+      const claudeInstanceId = ProviderInstanceId.make("claude_al");
+      const completedAt = DateTime.makeUnsafe("2026-11-22T12:00:00Z");
+      const parentProjection = {
+        thread: { id: parentThreadId },
+        runs: [],
+        contextTransfers: [],
+        subagents: [
+          {
+            id: taskId,
+            threadId: parentThreadId,
+            origin: "app_owned",
+            childThreadId,
+            driver: "claudeAgent",
+            providerInstanceId: claudeInstanceId,
+            model: "claude-fable-5-2",
+            status: "running",
+            result: null,
+            completionDelivery: null,
+          },
+        ],
+      } as unknown as OrchestrationV2ThreadProjection;
+      // The child's run has failed, and its parent's task has not settled from it yet.
+      const childProjection = {
+        thread: { id: childThreadId, title: "Child task", projectId: "project:mcp-quota" },
+        runs: [
+          {
+            id: childRunId,
+            ordinal: 1,
+            status: "failed",
+            rootNodeId: childRootId,
+            providerInstanceId: claudeInstanceId,
+            modelSelection: { instanceId: claudeInstanceId, model: "claude-fable-5-2" },
+            startedAt: completedAt,
+            completedAt,
+            delegatedTaskId: taskId,
+          },
+        ],
+        contextTransfers: [],
+        messages: [],
+        subagents: [],
+        providerThreads: [{ status: "not_loaded", pendingBackgroundTasks: [] }],
+        providerTurns: [],
+        runtimeRequests: [],
+        turnItems: [
+          {
+            id: "turn-item:mcp-quota-error",
+            type: "error",
+            runId: childRunId,
+            nodeId: childRootId,
+            ordinal: 1,
+            status: "failed",
+            updatedAt: completedAt,
+            failure: {
+              class: "usage_limit",
+              message: "Claude usage limit reached.",
+              code: "sdk_result_error",
+              retryable: null,
+              resetAt: "2026-11-25T08:00:00.000Z",
+              limitWindow: { kind: "weekly", modelScoped: true },
+            },
+          },
+        ],
+      } as unknown as OrchestrationV2ThreadProjection;
+      const layerDependencies = Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: (threadId) =>
+            Effect.succeed(threadId === parentThreadId ? parentProjection : childProjection),
+          delegatedTaskResultPending: () => Effect.succeed(false),
+          dispatch: () => Effect.succeed({ sequence: 1 }),
+          waitForThread: () =>
+            Effect.succeed({ run: childProjection.runs[0]!, timedOut: false } as never),
+          getThreadShell: (threadId) => Effect.succeed(liveThreadShell(threadId)),
+          getProjectThreadRecords: () => Effect.succeed(childProjection),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([]),
+        }),
+        Layer.mock(ProjectService.ProjectService)({ getById: () => Effect.succeedNone }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:mcp-quota"),
+        requestNamespace: "provider-session:mcp-quota",
+        thread: {
+          threadId: parentThreadId,
+          providerSessionId: "provider-session:mcp-quota",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const status = yield* service.taskStatus(scope, taskId);
+        assert.equal(status.status, "failed");
+        const quotaExhausted = {
+          providerInstanceId: claudeInstanceId,
+          model: "claude-fable-5-2",
+          window: "weekly",
+          modelScoped: true,
+          resetsAt: "2026-11-25T08:00:00.000Z",
+        };
+        assert.deepEqual(status.quotaExhausted, quotaExhausted);
+        const waited = yield* service.waitForThread(scope, { threadId: childThreadId });
+        assert.equal(waited.status, "failed");
+        assert.deepEqual(waited.quotaExhausted, quotaExhausted);
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+    }),
+  );
+
   it.effect("takes a silent run's report only from the same task's earlier runs", () =>
     Effect.gen(function* () {
       const parentThreadId = ThreadId.make("thread:mcp-report-parent");
@@ -2617,6 +2742,113 @@ describe("OrchestratorMcpService provider resolution", () => {
           );
         }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
       }),
+  );
+
+  it.effect("reports each login's quota and re-probes a stale reading without waiting", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-11-22T12:00:00.000Z"));
+      const weekly = (usedPercent: number) => ({
+        id: "seven_day",
+        kind: "weekly" as const,
+        label: "Weekly",
+        usedPercent,
+        resetsAt: "2026-11-25T08:00:00.000Z",
+      });
+      const claudeDriver = ProviderDriverKind.make("claudeAgent");
+      const login = (id: string, usageLimits?: ServerProvider["usageLimits"]): ServerProvider => ({
+        ...providerSnapshot({
+          instanceId: ProviderInstanceId.make(id),
+          driver: claudeDriver,
+          model: "claude-fable-5-2",
+        }),
+        ...(usageLimits === undefined ? {} : { usageLimits }),
+      });
+      const providers = [
+        login("claude_fresh", { checkedAt: "2026-11-22T11:58:00.000Z", windows: [weekly(30)] }),
+        login("claude_spent", { checkedAt: "2026-11-22T11:00:00.000Z", windows: [weekly(100)] }),
+        login("claude_unread"),
+      ];
+      const probed = yield* Queue.unbounded<ProviderInstanceId>();
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: () => Effect.succeed(parentProjection([])),
+        }),
+        ServerSettings.layerTest({
+          providerInstances: Object.fromEntries(
+            providers.map((provider) => [
+              provider.instanceId,
+              { driver: claudeDriver, enabled: true },
+            ]),
+          ),
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed(providers),
+          refreshInstance: (instanceId) =>
+            Queue.offer(probed, instanceId).pipe(Effect.as(providers)),
+        }),
+        adapterRegistryLayer(providers.map((provider) => provider.instanceId)),
+        Layer.mock(ProjectService.ProjectService)({ getById: () => Effect.succeedNone }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const capabilities = yield* service.capabilities(scope);
+        assert.deepEqual(
+          capabilities.providers.map((provider) => ({
+            id: provider.providerInstanceId,
+            canRunChildTask: provider.canRunChildTask,
+            constraints: provider.constraints,
+            quota: provider.quota,
+          })),
+          [
+            {
+              id: ProviderInstanceId.make("claude_fresh"),
+              canRunChildTask: true,
+              constraints: [],
+              quota: {
+                checkedAt: "2026-11-22T11:58:00.000Z",
+                windows: [
+                  { kind: "weekly", remainingPercent: 70, resetsAt: "2026-11-25T08:00:00.000Z" },
+                ],
+              },
+            },
+            {
+              id: ProviderInstanceId.make("claude_spent"),
+              canRunChildTask: false,
+              constraints: ["Weekly limit reached; resets 2026-11-25T08:00:00.000Z."],
+              quota: {
+                checkedAt: "2026-11-22T11:00:00.000Z",
+                windows: [
+                  { kind: "weekly", remainingPercent: 0, resetsAt: "2026-11-25T08:00:00.000Z" },
+                ],
+                exhausted: true,
+              },
+            },
+            {
+              id: ProviderInstanceId.make("claude_unread"),
+              canRunChildTask: true,
+              constraints: [],
+              quota: undefined,
+            },
+          ],
+        );
+        // A second call inside the window starts no second probe of the same reading.
+        yield* service.capabilities(scope);
+        assert.equal(yield* Queue.take(probed), ProviderInstanceId.make("claude_spent"));
+        assert.equal(yield* Queue.size(probed), 0);
+        // By then both readings are old, and the spent login's window opens again.
+        yield* TestClock.adjust(Duration.minutes(11));
+        yield* service.capabilities(scope);
+        assert.deepEqual(yield* Queue.takeN(probed, 2), [
+          ProviderInstanceId.make("claude_fresh"),
+          ProviderInstanceId.make("claude_spent"),
+        ]);
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
+    }),
   );
 
   it.effect("delegates to a model only the parent project's folder config advertises", () =>

@@ -3179,7 +3179,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "no computador que abriu esta página"]
+      "c": [
+        " ",
+        "no computador que abriu esta página"
+      ]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3191,7 +3194,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "· quem executar recebe este acesso"]
+      "c": [
+        " ",
+        "· quem executar recebe este acesso"
+      ]
     }
   ],
   "c54cc9c75db9dc58": "Aprove apenas um login que você acabou de iniciar.",
@@ -12190,6 +12196,17 @@
   "c6cf1b06e0433ca3": "Progresso da configuração",
   "e0167c02ca493094": "{step}, etapa {number}, {summary}",
   "6389dee75a7cb536": "{step}, etapa {number}",
+  "97823d9ea05f1d3e": "Soonest reset",
+  "6b204e7db3da10b5": "Session, most left",
+  "8d598d553a91287a": "Session, most used",
+  "426c0be1f963d8d6": "Week, most left",
+  "a14cd93a854b1514": "Week, most used",
+  "e376dc184e1b2895": "Week, soonest reset",
+  "e3c881b1e179eed2": "Sort and filter accounts",
+  "c5f8382d31188e50": "Sort accounts",
+  "beda5dd7c6e9b367": "Hide accounts with",
+  "c88a27a0b8ab2ced": "Empty sessions",
+  "e7cda30a6f258f8a": "Empty weeks",
   "5434b97f68b55d8f": "Acima do ritmo: consumindo mais rápido do que a janela passa",
   "4e518c48e00f45a9": "No ritmo da janela",
   "53e1b6487b5ddd6a": "Abaixo do ritmo: sobra margem para o resto da janela",
@@ -12223,6 +12240,9 @@
   "4df3ff1be768a7ab": "{name}: {remaining}% restante",
   "7aaaff1c6484f25c": "Segmento",
   "8bcab2ef61de6518": "Limite de $0",
+  "8488e046cbf3bd18": "{count} hidden: empty sessions and empty weeks",
+  "81ef75af0d6ff467": "{count, plural, one {{count} empty session hidden} other {{count} empty sessions hidden}}",
+  "e3b4eed7a3aea987": "{count, plural, one {{count} empty week hidden} other {{count} empty weeks hidden}}",
   "a16b48709357a5a7": "Gerenciar uso",
   "a00e74aaa421c524": "restante",
   "8bd6f07136317c8f": "Nenhum provedor nos ambientes selecionados informa limites de assinatura.",

@@ -4,6 +4,12 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { providerClients } from "@t3tools/client-runtime/provider-clients";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
+  type ArrangedLimitPool,
+  arrangeLimitPools,
+  type LimitAccountsView,
+  moveLimitAccount,
+} from "@t3tools/client-runtime/state/usage-limit-accounts";
+import {
   collectLimitAccounts,
   collectLimitPools,
   displayLimitWindows,
@@ -20,6 +26,8 @@ import {
 import { msg, T, useGT, useMessages, Var } from "gt-react-native";
 import { Fragment, type ReactNode, useId, useState } from "react";
 import { Pressable, View } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Reanimated from "react-native-reanimated";
 import { useNowMinuteMs } from "../../lib/clock";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -33,6 +41,13 @@ import type { MessageResolver } from "../../i18n/messages";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
 import { refillLabel, ResetCredits, resetLabels } from "./UsageLimitsSection";
+import {
+  type Slot,
+  type SlotDrag,
+  useSlotDrag,
+  useSlotGesture,
+  useSlotStyle,
+} from "./usageAccountReorder";
 import { usageProviderKind, useProviderColors } from "./usageProviders";
 
 const PACE_LABEL = {
@@ -80,12 +95,15 @@ function AccountChip({ email }: { readonly email: string }) {
 // Same gap-and-tick as the Limits rows: two clipped copies of the segment leave a see-through gap.
 function PaceGap({
   timeLeft,
+  initialWidth,
   children,
 }: {
   readonly timeLeft: number | null;
+  /** The width already known when a drop remounts the bar, so the mark draws in its first frame. */
+  readonly initialWidth: number;
   readonly children: ReactNode;
 }) {
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(initialWidth);
   const tickX =
     timeLeft === null || width < 6
       ? null
@@ -128,13 +146,15 @@ function AccountSegment({
   remaining,
   color,
   refillPercent,
+  initialSize,
 }: {
   readonly remaining: number;
   readonly color: string;
   readonly refillPercent: number;
+  readonly initialSize: { readonly width: number; readonly height: number };
 }) {
   const patternId = useId().replace(/:/g, "");
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [size, setSize] = useState(initialSize);
   return (
     <View
       pointerEvents="none"
@@ -169,6 +189,94 @@ function AccountSegment({
   );
 }
 
+/** Owns one drag's values. A new `key` after each drop gives the slots fresh ones. */
+function DragScope({ children }: { readonly children: (drag: SlotDrag) => ReactNode }) {
+  return children(useSlotDrag());
+}
+
+/** A column that slides aside for a dragged neighbour but cannot be lifted itself. */
+function ShiftSlot(props: {
+  readonly drag: SlotDrag;
+  readonly slot: Slot;
+  readonly className: string;
+}) {
+  const style = useSlotStyle(props.drag, props.slot);
+  return <Reanimated.View style={style} className={props.className} />;
+}
+
+function SegmentSlot(props: {
+  readonly drag: SlotDrag;
+  readonly slot: Slot;
+  readonly onDrop: (from: number, to: number) => void;
+  readonly className: string;
+  readonly children: ReactNode;
+}) {
+  const gesture = useSlotGesture(props.drag, props.slot, props.onDrop);
+  const style = useSlotStyle(props.drag, props.slot);
+  return (
+    <GestureDetector gesture={gesture}>
+      <Reanimated.View style={style} className={props.className}>
+        {props.children}
+      </Reanimated.View>
+    </GestureDetector>
+  );
+}
+
+function LegendSlot(props: {
+  readonly drag: SlotDrag;
+  readonly slot: Slot;
+  readonly onDrop: (from: number, to: number) => void;
+  readonly onStep: (delta: -1 | 1) => void;
+  readonly onHeight: (height: number) => void;
+  readonly title: string;
+  readonly movable: boolean;
+  readonly children: ReactNode;
+}) {
+  const gt = useGT();
+  const { slot, movable } = props;
+  const gesture = useSlotGesture(props.drag, slot, props.onDrop);
+  const style = useSlotStyle(props.drag, slot);
+  const canMoveUp = movable && slot.index > 0;
+  const canMoveDown = movable && slot.index < slot.count - 1;
+  return (
+    // Opaque so a lifted row covers the rows it passes over.
+    <Reanimated.View
+      style={style}
+      className="flex-row items-center bg-grouped-card"
+      onLayout={(event) => props.onHeight(event.nativeEvent.layout.height)}
+    >
+      <View className="min-w-0 flex-1">{props.children}</View>
+      {movable ? (
+        <GestureDetector gesture={gesture}>
+          <View
+            collapsable={false}
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel={gt("Reorder {item}", { item: props.title })}
+            accessibilityActions={[
+              ...(canMoveUp ? [{ name: "decrement", label: gt("Move up") }] : []),
+              ...(canMoveDown ? [{ name: "increment", label: gt("Move down") }] : []),
+            ]}
+            onAccessibilityAction={({ nativeEvent }) => {
+              if (nativeEvent.actionName === "decrement" && canMoveUp) props.onStep(-1);
+              if (nativeEvent.actionName === "increment" && canMoveDown) props.onStep(1);
+            }}
+            className="min-h-[44px] w-11 items-center justify-center self-stretch"
+          >
+            <SymbolView
+              name="line.3.horizontal"
+              size={18}
+              tintColorClassName="accent-foreground-muted"
+            />
+          </View>
+        </GestureDetector>
+      ) : null}
+    </Reanimated.View>
+  );
+}
+
+const SEGMENT_GAP = 4;
+
 function PoolWindowCard({
   pool,
   color,
@@ -177,6 +285,7 @@ function PoolWindowCard({
   label,
   description,
   wide,
+  onMoveAccount,
 }: {
   readonly pool: LimitPoolWindow;
   readonly color: string;
@@ -185,11 +294,29 @@ function PoolWindowCard({
   readonly label?: string | null;
   readonly description?: string;
   readonly wide: boolean;
+  readonly onMoveAccount: (activeKey: string, overKey: string) => void;
 }) {
   const navigation = useNavigation();
   const gt = useGT();
   const m = useMessages();
   const [barWidth, setBarWidth] = useState(0);
+  const [rowHeight, setRowHeight] = useState(0);
+  // Each drop remounts the slots so the new order and the cleared offsets land in one frame.
+  const [drops, setDrops] = useState(0);
+  const columnCount = pool.columns.length;
+  const segmentSize = {
+    width: barWidth > 0 ? (barWidth - SEGMENT_GAP * (columnCount - 1)) / columnCount : 0,
+    height: wide ? 36 : 28,
+  };
+  const reported = pool.columns.flatMap((member) => (member.window ? [member.account] : []));
+  const drop = (accounts: readonly LimitAccount[]) => (from: number, to: number) => {
+    const [active, over] = [accounts[from], accounts[to]];
+    if (!active || !over) return;
+    setDrops((count) => count + 1);
+    onMoveAccount(active.key, over.key);
+  };
+  const dropSegment = drop(pool.columns.map((member) => member.account));
+  const dropRow = drop(reported);
   // Each segment needs room for its account, percent and reset to label itself.
   const segmentWidth = barWidth / Math.max(pool.columns.length, 1);
   const inlineLabels = wide && segmentWidth >= 96;
@@ -238,211 +365,253 @@ function PoolWindowCard({
       className="flex-row gap-1"
       onLayout={(event) => setBarWidth(event.nativeEvent.layout.width)}
     >
-      {pool.columns.map((member, index) => {
-        if (!member.window)
-          return (
-            <View
-              key={member.account.key}
-              className={wide ? "h-9 min-w-0 flex-1" : "h-7 min-w-0 flex-1"}
-            />
-          );
-        const { account, window } = member;
-        const timeLeft = paceRemainingPercent(window, now);
-        const credits = account.limits.resetCredits?.availableCount ?? 0;
-        const resetsIn = resetLabels(window, now, m)?.compact;
-        return (
-          <Pressable
-            key={account.key}
-            accessibilityRole="button"
-            accessibilityLabel={
-              timeLeft === null
-                ? gt("Segment {index}, {account}, {remaining}% left", {
-                    index: index + 1,
-                    account: accountName(account, m),
-                    remaining: remainingPercent(window),
-                  })
-                : gt(
-                    "Segment {index}, {account}, {remaining}% left, {timeLeft}% of the window left",
-                    {
-                      index: index + 1,
-                      account: accountName(account, m),
-                      remaining: remainingPercent(window),
-                      timeLeft,
-                    },
-                  )
-            }
-            accessibilityHint={gt("Show account details")}
-            onPress={() => openAccount(account)}
-            className={wide ? "h-9 min-w-0 flex-1 rounded-md" : "h-7 min-w-0 flex-1 rounded-md"}
-          >
-            <PaceGap timeLeft={timeLeft}>
-              <View className="absolute inset-0 rounded-md bg-subtle" />
-              <View className="absolute inset-0 overflow-hidden rounded-md">
-                <AccountSegment
-                  remaining={remainingPercent(window)}
-                  color={normalizeProviderAccentColor(account.accentColor) ?? color}
-                  refillPercent={window.resetsAt ? member.refillPercent : 0}
+      <DragScope key={drops}>
+        {(drag) =>
+          pool.columns.map((member, index) => {
+            const slot: Slot = {
+              index,
+              count: columnCount,
+              pitch: segmentSize.width + SEGMENT_GAP,
+              axis: "x",
+            };
+            const slotClassName = wide ? "h-9 min-w-0 flex-1" : "h-7 min-w-0 flex-1";
+            if (!member.window)
+              return (
+                <ShiftSlot
+                  key={member.account.key}
+                  drag={drag}
+                  slot={slot}
+                  className={slotClassName}
                 />
-              </View>
-            </PaceGap>
-            {inlineLabels ? (
-              <View
-                pointerEvents="none"
-                className="absolute inset-0 flex-row items-center justify-between gap-2 overflow-hidden rounded-md px-2"
+              );
+            const { account, window } = member;
+            const timeLeft = paceRemainingPercent(window, now);
+            const credits = account.limits.resetCredits?.availableCount ?? 0;
+            const resetsIn = resetLabels(window, now, m)?.compact;
+            return (
+              <SegmentSlot
+                key={account.key}
+                drag={drag}
+                slot={slot}
+                onDrop={dropSegment}
+                className={slotClassName}
               >
-                <View className="min-w-0 shrink flex-row items-center gap-1.5">
-                  {account.email ? <AccountChip email={account.email} /> : null}
-                  {account.email && !(account.displayName && inlineName) ? null : (
-                    <Text
-                      numberOfLines={1}
-                      className="min-w-0 shrink text-xs font-t3-medium text-foreground"
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    timeLeft === null
+                      ? gt("Segment {index}, {account}, {remaining}% left", {
+                          index: index + 1,
+                          account: accountName(account, m),
+                          remaining: remainingPercent(window),
+                        })
+                      : gt(
+                          "Segment {index}, {account}, {remaining}% left, {timeLeft}% of the window left",
+                          {
+                            index: index + 1,
+                            account: accountName(account, m),
+                            remaining: remainingPercent(window),
+                            timeLeft,
+                          },
+                        )
+                  }
+                  accessibilityHint={gt("Show account details")}
+                  onPress={() => openAccount(account)}
+                  className="flex-1 rounded-md"
+                >
+                  <PaceGap timeLeft={timeLeft} initialWidth={segmentSize.width}>
+                    <View className="absolute inset-0 rounded-md bg-subtle" />
+                    <View className="absolute inset-0 overflow-hidden rounded-md">
+                      <AccountSegment
+                        remaining={remainingPercent(window)}
+                        color={normalizeProviderAccentColor(account.accentColor) ?? color}
+                        refillPercent={window.resetsAt ? member.refillPercent : 0}
+                        initialSize={segmentSize}
+                      />
+                    </View>
+                  </PaceGap>
+                  {inlineLabels ? (
+                    <View
+                      pointerEvents="none"
+                      className="absolute inset-0 flex-row items-center justify-between gap-2 overflow-hidden rounded-md px-2"
                     >
-                      {accountName(account, m)}
-                    </Text>
+                      <View className="min-w-0 shrink flex-row items-center gap-1.5">
+                        {account.email ? <AccountChip email={account.email} /> : null}
+                        {account.email && !(account.displayName && inlineName) ? null : (
+                          <Text
+                            numberOfLines={1}
+                            className="min-w-0 shrink text-xs font-t3-medium text-foreground"
+                          >
+                            {accountName(account, m)}
+                          </Text>
+                        )}
+                        <Text className="text-sm font-t3-bold tabular-nums text-foreground">
+                          {remainingPercent(window)}%
+                        </Text>
+                      </View>
+                      {inlineReset && (resetsIn || credits) ? (
+                        <View className="shrink-0 flex-row items-center gap-1 rounded bg-grouped-card/85 px-1.5 py-0.5">
+                          {resetsIn ? (
+                            <>
+                              <SymbolView
+                                name="arrow.clockwise"
+                                size={11}
+                                tintColorClassName="accent-foreground-muted"
+                              />
+                              <Text className="text-xs tabular-nums text-foreground-muted">
+                                {resetsIn}
+                              </Text>
+                            </>
+                          ) : null}
+                          {credits ? (
+                            <>
+                              <SymbolView
+                                name="ticket"
+                                size={12}
+                                tintColorClassName="accent-icon"
+                              />
+                              <Text className="text-xs font-t3-medium tabular-nums text-foreground">
+                                {credits}
+                              </Text>
+                            </>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : (
+                    <View
+                      pointerEvents="none"
+                      className="absolute inset-0 items-center justify-center overflow-hidden rounded-md"
+                    >
+                      <Text
+                        numberOfLines={1}
+                        className="max-w-full shrink text-xs font-t3-medium tabular-nums text-foreground"
+                      >
+                        {index + 1}
+                      </Text>
+                    </View>
                   )}
-                  <Text className="text-sm font-t3-bold tabular-nums text-foreground">
+                </Pressable>
+              </SegmentSlot>
+            );
+          })
+        }
+      </DragScope>
+    </View>
+  );
+  const legend = (
+    <View>
+      <DragScope key={drops}>
+        {(drag) =>
+          pool.columns.map(({ account, window }, index) => {
+            if (!window) return null;
+            const row = reported.indexOf(account);
+            const segmentColor = normalizeProviderAccentColor(account.accentColor) ?? color;
+            const credits = account.limits.resetCredits?.availableCount ?? 0;
+            const reset = resetLabels(window, now, m);
+            const resetsIn = reset?.full;
+            return (
+              <LegendSlot
+                key={account.key}
+                drag={drag}
+                slot={{ index: row, count: reported.length, pitch: rowHeight, axis: "y" }}
+                onDrop={dropRow}
+                onStep={(delta) => dropRow(row, row + delta)}
+                onHeight={setRowHeight}
+                title={accountName(account, m)}
+                movable={reported.length > 1}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    resetsIn && credits
+                      ? gt(
+                          "Segment {index}, {account}, {remaining}% left, {resetsIn}, {credits, plural, other {{credits} reset credits banked}}",
+                          {
+                            index: index + 1,
+                            account: accountName(account, m),
+                            remaining: remainingPercent(window),
+                            resetsIn,
+                            credits,
+                          },
+                        )
+                      : resetsIn
+                        ? gt("Segment {index}, {account}, {remaining}% left, {resetsIn}", {
+                            index: index + 1,
+                            account: accountName(account, m),
+                            remaining: remainingPercent(window),
+                            resetsIn,
+                          })
+                        : credits
+                          ? gt(
+                              "Segment {index}, {account}, {remaining}% left, {credits, plural, other {{credits} reset credits banked}}",
+                              {
+                                index: index + 1,
+                                account: accountName(account, m),
+                                remaining: remainingPercent(window),
+                                credits,
+                              },
+                            )
+                          : gt("Segment {index}, {account}, {remaining}% left", {
+                              index: index + 1,
+                              account: accountName(account, m),
+                              remaining: remainingPercent(window),
+                            })
+                  }
+                  accessibilityHint={gt("Show account details")}
+                  onPress={() => openAccount(account)}
+                  className="min-h-[44px] flex-row items-center gap-2 active:opacity-60"
+                >
+                  <View className="relative size-5 items-center justify-center overflow-hidden rounded-md bg-subtle-strong">
+                    <View
+                      pointerEvents="none"
+                      className="absolute inset-0"
+                      style={{ backgroundColor: segmentColor, opacity: 0.35 }}
+                    />
+                    <Text className="text-xs font-t3-medium tabular-nums text-foreground">
+                      {index + 1}
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    className="min-w-0 flex-1 text-sm font-t3-medium text-foreground"
+                  >
+                    {accountName(account, m)}
+                  </Text>
+                  <Text className="text-sm font-t3-medium tabular-nums text-foreground">
                     {remainingPercent(window)}%
                   </Text>
-                </View>
-                {inlineReset && (resetsIn || credits) ? (
-                  <View className="shrink-0 flex-row items-center gap-1 rounded bg-grouped-card/85 px-1.5 py-0.5">
+                  <View className="flex-row items-center gap-1">
                     {resetsIn ? (
                       <>
                         <SymbolView
                           name="arrow.clockwise"
-                          size={11}
+                          size={12}
                           tintColorClassName="accent-foreground-muted"
                         />
                         <Text className="text-xs tabular-nums text-foreground-muted">
-                          {resetsIn}
+                          {reset?.compact}
                         </Text>
                       </>
                     ) : null}
                     {credits ? (
                       <>
-                        <SymbolView name="ticket" size={12} tintColorClassName="accent-icon" />
+                        {resetsIn ? (
+                          <Text className="text-xs text-foreground-tertiary">·</Text>
+                        ) : null}
+                        <SymbolView name="ticket" size={13} tintColorClassName="accent-icon" />
                         <Text className="text-xs font-t3-medium tabular-nums text-foreground">
                           {credits}
                         </Text>
                       </>
                     ) : null}
                   </View>
-                ) : null}
-              </View>
-            ) : (
-              <View
-                pointerEvents="none"
-                className="absolute inset-0 items-center justify-center overflow-hidden rounded-md"
-              >
-                <Text
-                  numberOfLines={1}
-                  className="max-w-full shrink text-xs font-t3-medium tabular-nums text-foreground"
-                >
-                  {index + 1}
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-  const legend = (
-    <View>
-      {pool.columns.map(({ account, window }, index) => {
-        if (!window) return null;
-        const segmentColor = normalizeProviderAccentColor(account.accentColor) ?? color;
-        const credits = account.limits.resetCredits?.availableCount ?? 0;
-        const reset = resetLabels(window, now, m);
-        const resetsIn = reset?.full;
-        return (
-          <Pressable
-            key={account.key}
-            accessibilityRole="button"
-            accessibilityLabel={
-              resetsIn && credits
-                ? gt(
-                    "Segment {index}, {account}, {remaining}% left, {resetsIn}, {credits, plural, other {{credits} reset credits banked}}",
-                    {
-                      index: index + 1,
-                      account: accountName(account, m),
-                      remaining: remainingPercent(window),
-                      resetsIn,
-                      credits,
-                    },
-                  )
-                : resetsIn
-                  ? gt("Segment {index}, {account}, {remaining}% left, {resetsIn}", {
-                      index: index + 1,
-                      account: accountName(account, m),
-                      remaining: remainingPercent(window),
-                      resetsIn,
-                    })
-                  : credits
-                    ? gt(
-                        "Segment {index}, {account}, {remaining}% left, {credits, plural, other {{credits} reset credits banked}}",
-                        {
-                          index: index + 1,
-                          account: accountName(account, m),
-                          remaining: remainingPercent(window),
-                          credits,
-                        },
-                      )
-                    : gt("Segment {index}, {account}, {remaining}% left", {
-                        index: index + 1,
-                        account: accountName(account, m),
-                        remaining: remainingPercent(window),
-                      })
-            }
-            accessibilityHint={gt("Show account details")}
-            onPress={() => openAccount(account)}
-            className="min-h-[44px] flex-row items-center gap-2 active:opacity-60"
-          >
-            <View className="relative size-5 items-center justify-center overflow-hidden rounded-md bg-subtle-strong">
-              <View
-                pointerEvents="none"
-                className="absolute inset-0"
-                style={{ backgroundColor: segmentColor, opacity: 0.35 }}
-              />
-              <Text className="text-xs font-t3-medium tabular-nums text-foreground">
-                {index + 1}
-              </Text>
-            </View>
-            <Text
-              numberOfLines={1}
-              className="min-w-0 flex-1 text-sm font-t3-medium text-foreground"
-            >
-              {accountName(account, m)}
-            </Text>
-            <Text className="text-sm font-t3-medium tabular-nums text-foreground">
-              {remainingPercent(window)}%
-            </Text>
-            <View className="flex-row items-center gap-1">
-              {resetsIn ? (
-                <>
-                  <SymbolView
-                    name="arrow.clockwise"
-                    size={12}
-                    tintColorClassName="accent-foreground-muted"
-                  />
-                  <Text className="text-xs tabular-nums text-foreground-muted">
-                    {reset?.compact}
-                  </Text>
-                </>
-              ) : null}
-              {credits ? (
-                <>
-                  {resetsIn ? <Text className="text-xs text-foreground-tertiary">·</Text> : null}
-                  <SymbolView name="ticket" size={13} tintColorClassName="accent-icon" />
-                  <Text className="text-xs font-t3-medium tabular-nums text-foreground">
-                    {credits}
-                  </Text>
-                </>
-              ) : null}
-            </View>
-          </Pressable>
-        );
-      })}
+                </Pressable>
+              </LegendSlot>
+            );
+          })
+        }
+      </DragScope>
     </View>
   );
   if (wide) {
@@ -465,23 +634,71 @@ function PoolWindowCard({
   );
 }
 
+function HiddenAccountsRow({
+  pool,
+  revealed,
+  onToggle,
+}: {
+  readonly pool: ArrangedLimitPool;
+  readonly revealed: boolean;
+  readonly onToggle: () => void;
+}) {
+  const gt = useGT();
+  const { hiddenEmptySessions: sessions, hiddenEmptyWeeks: weeks } = pool;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: revealed }}
+      onPress={onToggle}
+      className="min-h-11 flex-row items-center gap-1.5 px-1 active:opacity-60"
+    >
+      <Text className="text-sm text-foreground-muted">
+        {sessions > 0 && weeks > 0
+          ? gt("{count} hidden: empty sessions and empty weeks", { count: pool.hidden.length })
+          : sessions > 0
+            ? gt(
+                "{count, plural, one {{count} empty session hidden} other {{count} empty sessions hidden}}",
+                { count: sessions },
+              )
+            : gt(
+                "{count, plural, one {{count} empty week hidden} other {{count} empty weeks hidden}}",
+                { count: weeks },
+              )}
+      </Text>
+      <SymbolView
+        name={revealed ? "chevron.down" : "chevron.right"}
+        size={12}
+        tintColorClassName="accent-foreground-muted"
+      />
+    </Pressable>
+  );
+}
+
 export function UsageLimitsSection({
   now,
   failedLabels,
   selectedEnvironmentIds,
   wide = false,
+  accountsView,
+  onAccountsViewChange,
 }: {
   readonly now: number;
   readonly failedLabels: readonly string[];
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly wide?: boolean;
+  readonly accountsView: LimitAccountsView;
+  readonly onAccountsViewChange: (view: LimitAccountsView) => void;
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const selected =
     selectedEnvironmentIds === null
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
-  const pools = collectLimitPools(collectLimitAccounts(selected), now);
+  const [hiddenRevealed, setHiddenRevealed] = useState(false);
+  const everyPool = collectLimitPools(collectLimitAccounts(selected), now);
+  const pools = arrangeLimitPools(everyPool, accountsView, now, hiddenRevealed);
+  const moveAccount = (activeKey: string, overKey: string) =>
+    onAccountsViewChange(moveLimitAccount(everyPool, accountsView, activeKey, overKey));
   const m = useMessages();
   const notices = collectLimitNotices(selected, m);
   const externalLinks = collectExternalUsageLinks(selected, m);
@@ -527,9 +744,17 @@ export function UsageLimitsSection({
                     label={details?.label}
                     description={details?.description}
                     wide={wide}
+                    onMoveAccount={moveAccount}
                   />
                 );
               })}
+              {pool.hidden.length > 0 ? (
+                <HiddenAccountsRow
+                  pool={pool}
+                  revealed={hiddenRevealed}
+                  onToggle={() => setHiddenRevealed((revealed) => !revealed)}
+                />
+              ) : null}
             </View>
           </Fragment>
         );

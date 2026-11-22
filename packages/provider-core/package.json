@@ -107,6 +107,10 @@
       "types": "./src/server/processGroup.ts",
       "import": "./src/server/processGroup.ts"
     },
+    "./server/runtimeTempDirectory": {
+      "types": "./src/server/runtimeTempDirectory.ts",
+      "import": "./src/server/runtimeTempDirectory.ts"
+    },
     "./server/ProviderAdapter": {
       "types": "./src/server/ProviderAdapter.ts",
       "import": "./src/server/ProviderAdapter.ts"

@@ -3,11 +3,19 @@ import { ChatGptUsageSummary } from "./ChatGptUsageSummary";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { EnvironmentId, USAGE_CONTRACT_VERSION, type UsageProviderKind } from "@t3tools/contracts";
 import { type RouteProp, useIsFocused, useRoute } from "@react-navigation/native";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  DEFAULT_LIMIT_ACCOUNTS_VIEW,
+  LIMIT_ACCOUNT_SORTS,
+  type LimitAccountSort,
+  type LimitAccountsView,
+} from "@t3tools/client-runtime/state/usage-limit-accounts";
 import {
   updatingProvidersLabel,
   usageEnvironmentProgress,
   usageProgress,
 } from "@t3tools/client-runtime/state/usage-progress";
+import { AsyncResult } from "effect/reactivity";
 import {
   isCompatibleUsageContractVersion,
   isModelCostUnknown,
@@ -39,7 +47,9 @@ import { cn } from "../../lib/cn";
 import type { MessageResolver } from "../../i18n/messages";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { NativeWorkspaceTabActivityContext } from "../../native/v5-workspace-context";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { usageAxisDayLabel, usageAxisHourLabel } from "./usageAxisLabels";
 import { UsageDailyChart } from "./UsageDailyChart";
@@ -55,6 +65,16 @@ const VIEW_OPTIONS = [
   { value: "tokens", label: msg("Tokens", { $context: "usage view tab" }) },
   { value: "limits", label: msg("Limits", { $context: "usage view tab, subscription limits" }) },
 ] as const satisfies readonly { value: UsageView; label: string }[];
+
+const ACCOUNT_SORT_LABEL: Record<LimitAccountSort, string> = {
+  reset: msg("Soonest reset"),
+  manual: msg("Manual order"),
+  sessionMostLeft: msg("Session, most left"),
+  sessionMostUsed: msg("Session, most used"),
+  weekMostLeft: msg("Week, most left"),
+  weekMostUsed: msg("Week, most used"),
+  weekSoonest: msg("Week, soonest reset"),
+};
 
 const WINDOW_OPTIONS = [
   {
@@ -219,6 +239,59 @@ function UsageScreen(props: {
     const id = EnvironmentId.make(value);
     setSelectedEnvironmentIds((selected) => toggleUsageEnvironment(selected, environments, id));
   };
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
+  // Kept here too so a drop reorders in the same render that clears its drag offsets.
+  const [changedAccountsView, setChangedAccountsView] = useState<LimitAccountsView | null>(null);
+  const accountsView =
+    changedAccountsView ??
+    (AsyncResult.isSuccess(preferences) ? preferences.value.usageLimitAccounts : undefined) ??
+    DEFAULT_LIMIT_ACCOUNTS_VIEW;
+  const setAccountsView = (view: LimitAccountsView) => {
+    setChangedAccountsView(view);
+    void savePreferences({ usageLimitAccounts: view });
+  };
+  const accountsMenu = {
+    title: gt("Sort and filter accounts"),
+    icon: "slider.horizontal.3" as const,
+    items: [
+      {
+        id: "sort",
+        title: gt("Sort accounts"),
+        inline: true,
+        items: LIMIT_ACCOUNT_SORTS.map((sort) => ({
+          id: `sort:${sort}`,
+          title: m(ACCOUNT_SORT_LABEL[sort]),
+          selected: accountsView.sort === sort,
+          onPress: () => setAccountsView({ ...accountsView, sort }),
+        })),
+      },
+      {
+        id: "hide",
+        title: gt("Hide accounts with"),
+        inline: true,
+        items: [
+          {
+            id: "hide:sessions",
+            title: gt("Empty sessions"),
+            selected: accountsView.hideEmptySessions,
+            onPress: () =>
+              setAccountsView({
+                ...accountsView,
+                hideEmptySessions: !accountsView.hideEmptySessions,
+              }),
+          },
+          {
+            id: "hide:weeks",
+            title: gt("Empty weeks"),
+            selected: accountsView.hideEmptyWeeks,
+            onPress: () =>
+              setAccountsView({ ...accountsView, hideEmptyWeeks: !accountsView.hideEmptyWeeks }),
+          },
+        ],
+      },
+    ],
+  };
   const environmentMenu = {
     title: gt("Filter usage environments"),
     icon:
@@ -246,7 +319,13 @@ function UsageScreen(props: {
   return (
     <SettingsScreen
       title={gt("Usage", { $context: "screen title" })}
-      menus={showEnvironmentFilter ? [environmentMenu] : undefined}
+      menus={
+        showEnvironmentFilter
+          ? showingLimits
+            ? [accountsMenu, environmentMenu]
+            : [environmentMenu]
+          : undefined
+      }
       workspaceRoot={props.workspace}
     >
       {headerOnly ? null : (
@@ -308,6 +387,8 @@ function UsageScreen(props: {
                   failedLabels={limits.failedLabels}
                   selectedEnvironmentIds={selectedEnvironmentIds}
                   wide={wide}
+                  accountsView={accountsView}
+                  onAccountsViewChange={setAccountsView}
                 />
               ) : (
                 <>

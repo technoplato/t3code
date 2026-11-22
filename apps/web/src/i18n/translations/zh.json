@@ -3183,7 +3183,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "位于打开此页面的计算机上"]
+      "c": [
+        " ",
+        "位于打开此页面的计算机上"
+      ]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3195,7 +3198,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "· 运行它的任何人都会获得此访问权限"]
+      "c": [
+        " ",
+        "· 运行它的任何人都会获得此访问权限"
+      ]
     }
   ],
   "c54cc9c75db9dc58": "请只批准你刚刚发起的登录。",
@@ -12216,6 +12222,17 @@
   "c6cf1b06e0433ca3": "设置进度",
   "e0167c02ca493094": "{step}，第 {number} 步，{summary}",
   "6389dee75a7cb536": "{step}，第 {number} 步",
+  "97823d9ea05f1d3e": "Soonest reset",
+  "6b204e7db3da10b5": "Session, most left",
+  "8d598d553a91287a": "Session, most used",
+  "426c0be1f963d8d6": "Week, most left",
+  "a14cd93a854b1514": "Week, most used",
+  "e376dc184e1b2895": "Week, soonest reset",
+  "e3c881b1e179eed2": "Sort and filter accounts",
+  "c5f8382d31188e50": "Sort accounts",
+  "beda5dd7c6e9b367": "Hide accounts with",
+  "c88a27a0b8ab2ced": "Empty sessions",
+  "e7cda30a6f258f8a": "Empty weeks",
   "5434b97f68b55d8f": "消耗偏快：用量消耗进度超过本周期的时间进度",
   "4e518c48e00f45a9": "与时间进度一致",
   "53e1b6487b5ddd6a": "消耗偏慢：本周期剩余时间内还有充足余量",
@@ -12249,6 +12266,9 @@
   "4df3ff1be768a7ab": "{name}：剩余 {remaining}%",
   "7aaaff1c6484f25c": "分段",
   "8bcab2ef61de6518": "上限 $0",
+  "8488e046cbf3bd18": "{count} hidden: empty sessions and empty weeks",
+  "81ef75af0d6ff467": "{count, plural, one {{count} empty session hidden} other {{count} empty sessions hidden}}",
+  "e3b4eed7a3aea987": "{count, plural, one {{count} empty week hidden} other {{count} empty weeks hidden}}",
   "a16b48709357a5a7": "管理用量",
   "a00e74aaa421c524": "剩余",
   "8bd6f07136317c8f": "选中的环境上没有提供方报告订阅限制。",
