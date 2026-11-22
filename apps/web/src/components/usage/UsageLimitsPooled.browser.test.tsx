@@ -8,6 +8,8 @@ import { CHATGPT_USAGE_URL } from "@t3tools/shared/usageLimits";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
+import "../../index.css";
+
 import { render } from "../../../test/render";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 
@@ -101,10 +103,22 @@ describe("UsageLimitsPooled account order", () => {
       />,
     );
 
-    await userEvent.dragAndDrop(
-      screen.getByRole("button", { name: /^Soon: / }),
-      screen.getByRole("button", { name: /^Late: / }),
-    );
+    const source = screen.getByRole("button", { name: /^Soon: / }).element();
+    const target = screen.getByRole("button", { name: /^Late: / }).element();
+    const a = source.getBoundingClientRect();
+    const b = target.getBoundingClientRect();
+    console.log("RECTS", JSON.stringify(a), JSON.stringify(b));
+    const ev = (type: string, x: number) =>
+      new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: a.y + a.height / 2 });
+    source.dispatchEvent(ev("mousedown", a.x + a.width / 2));
+    document.dispatchEvent(ev("mousemove", a.x + a.width / 2 + 10));
+    await new Promise((r) => setTimeout(r, 50));
+    document.dispatchEvent(ev("mousemove", b.x + b.width / 2));
+    await new Promise((r) => setTimeout(r, 50));
+    console.log("TRANSFORM", source.style.transform, target.style.transform);
+    document.dispatchEvent(ev("mouseup", b.x + b.width / 2));
+    await new Promise((r) => setTimeout(r, 50));
+    void userEvent;
 
     expect(onAccountsViewChange).toHaveBeenCalledWith({
       sort: "manual",

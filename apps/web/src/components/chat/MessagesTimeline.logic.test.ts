@@ -29,6 +29,7 @@ import { MessageId, RunId } from "@t3tools/contracts";
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
+  deriveNavigableMessageRowIndices,
   timelineTurnFoldRunIdsByEntryId,
   liveAnswerPreview,
   deriveMessagesTimelineRowsWithState,

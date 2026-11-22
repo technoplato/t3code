@@ -1,4 +1,4 @@
-import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
+import { type ConnectionTarget, EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import {
   EnvironmentRpcSubscriptionObserver,
   request,
@@ -19,6 +19,7 @@ import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
+import { clientViewIdentity } from "./clientViewIdentity";
 import { clientViewFor, observeClientView } from "./clientViewReporter";
 import { randomUUID } from "./utils";
 
@@ -87,6 +88,7 @@ function wasRecentlyInteracted(lastInteractionAtMs: number, observedAtMs: number
 
 function createActivityReport(
   environmentId: EnvironmentId,
+  target: ConnectionTarget | undefined,
   lastInteractionAtMs: number,
   observedAtMs: number,
 ): ClientActivityReportInput {
@@ -109,7 +111,8 @@ function createActivityReport(
     ttlMs: LEASE_TTL_MS,
     observedAt: DateTime.makeUnsafe(observedAtMs),
     // Rides on the full report: a server that predates the view reads the rest as before.
-    ...(view === undefined ? {} : { view }),
+    // Only a view needs naming, so a report without one stays as small as it was.
+    ...(view === undefined ? {} : { view, identity: clientViewIdentity(target) }),
   };
 }
 
@@ -201,14 +204,19 @@ export const layer = Layer.effectDiscard(
       const observedAtMs = yield* Clock.currentTimeMillis;
       const entries = yield* SubscriptionRef.get(registry.entries);
       yield* Effect.forEach(
-        entries.keys(),
-        (environmentId) =>
+        entries,
+        ([environmentId, entry]) =>
           registry
             .run(
               environmentId,
               request(
                 WS_METHODS.serverReportClientActivity,
-                createActivityReport(environmentId, lastInteractionAtMs, observedAtMs),
+                createActivityReport(
+                  environmentId,
+                  entry.target,
+                  lastInteractionAtMs,
+                  observedAtMs,
+                ),
               ),
             )
             // Not `ignore`: tearing down an environment mid-request interrupts its report,

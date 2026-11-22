@@ -1,4 +1,4 @@
-import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
+import { type ConnectionTarget, EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { EnvironmentRpcSubscriptionObserver, request } from "@t3tools/client-runtime/rpc";
 import {
   type BackgroundScope,
@@ -24,6 +24,7 @@ import {
   retainedMobileBackgroundScopes,
 } from "./background-activity-scopes";
 import { clientViewFor, observeClientView } from "./client-view";
+import { clientViewIdentity } from "./client-view-identity";
 
 const REPORT_INTERVAL_MS = 25_000;
 // Shorter than the interval, so a report that never settles cannot hold up the next one.
@@ -40,6 +41,7 @@ function normalizeAppState(
 
 function createActivityReport(input: {
   readonly environmentId: EnvironmentId;
+  readonly target: ConnectionTarget | undefined;
   readonly clientId: string;
   readonly appState: string | null | undefined;
   readonly observedAtMs: number;
@@ -58,7 +60,8 @@ function createActivityReport(input: {
     ttlMs: LEASE_TTL_MS,
     observedAt: DateTime.makeUnsafe(input.observedAtMs),
     // Rides on the full report: a server that predates the view reads the rest as before.
-    ...(view === undefined ? {} : { view }),
+    // Only a view needs naming, so a report without one stays as small as it was.
+    ...(view === undefined ? {} : { view, identity: clientViewIdentity(input.target) }),
   };
 }
 
@@ -86,8 +89,8 @@ export const layerReporter = Layer.effectDiscard(
       const observedAtMs = yield* Clock.currentTimeMillis;
       const entries = yield* SubscriptionRef.get(registry.entries);
       yield* Effect.forEach(
-        entries.keys(),
-        (environmentId) =>
+        entries,
+        ([environmentId, entry]) =>
           registry
             .run(
               environmentId,
@@ -95,6 +98,7 @@ export const layerReporter = Layer.effectDiscard(
                 WS_METHODS.serverReportClientActivity,
                 createActivityReport({
                   environmentId: environmentId as EnvironmentId,
+                  target: entry.target,
                   clientId,
                   appState,
                   observedAtMs,
