@@ -1,4 +1,9 @@
-import type { ServerProvider, ServerProviderUsageWindow } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  type ServerProvider,
+  type ServerProviderUsageWindow,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -10,7 +15,7 @@ import {
 
 const NOW = Date.parse("2026-03-10T12:00:00.000Z");
 const HOUR = 60 * 60_000;
-const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
+const iso = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(NOW + offsetMs));
 
 function usageWindow(
   id: string,
@@ -30,7 +35,7 @@ function usageWindow(
 
 function login(
   windows: ReadonlyArray<ServerProviderUsageWindow> | null,
-  driver: ServerProvider["driver"] = "claudeAgent" as ServerProvider["driver"],
+  driver = ProviderDriverKind.make("claudeAgent"),
 ): Pick<ServerProvider, "driver" | "usageLimits"> {
   return {
     driver,
@@ -75,12 +80,14 @@ describe("providerQuotaForModel", () => {
       usageWindow("seven_day", 10, 72 * HOUR),
       usageWindow("budget", 100, 24 * HOUR, { modelIds: ["other-model"] }),
     ];
-    expect(providerQuotaForModel(login(windows, "opencode"), "my-model", NOW).kind).toBe(
-      "available",
-    );
-    expect(providerQuotaForModel(login(windows, "opencode"), "other-model", NOW).kind).toBe(
-      "exhausted",
-    );
+    expect(
+      providerQuotaForModel(login(windows, ProviderDriverKind.make("opencode")), "my-model", NOW)
+        .kind,
+    ).toBe("available");
+    expect(
+      providerQuotaForModel(login(windows, ProviderDriverKind.make("opencode")), "other-model", NOW)
+        .kind,
+    ).toBe("exhausted");
   });
 
   it("is exhausted when any metering window is spent, until the last one refills", () => {

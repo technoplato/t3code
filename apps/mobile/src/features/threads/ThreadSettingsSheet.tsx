@@ -73,6 +73,7 @@ import {
   withStoredThreadModelOptions,
 } from "../../lib/modelOptions";
 import { groupModelsBySubProvider } from "@t3tools/client-runtime/providerSubProviders";
+import type { ProviderQuota } from "@t3tools/client-runtime/provider-quota-remaining";
 import { applyProviderOptionSelection } from "../../lib/providerOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import {
@@ -98,7 +99,10 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { providerWorkspaceSnapshotRefresh } from "../../state/provider-workspace-snapshot-refresh";
 import { threadAllowsProviderSwitch } from "../../state/thread-provider-switching";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
-import { mobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
+import type { ThreadSettingsModelSort } from "../../persistence/mobile-preferences";
+import { useNowMinuteMs } from "../../lib/clock";
+import { environmentIdsKey, limitsAutoRefreshSetAtom } from "../usage/usageLimitsRefresh";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { ScreenContent } from "../../components/ui/ScreenContent";
@@ -119,7 +123,9 @@ import {
 import {
   canCommitPendingModel,
   modelFavoriteKey,
+  mostRemainingOrder,
   pendingModelAfterPress,
+  pendingModelForLogin,
   providerSectionIsCollapsed,
   visibleCatalogModels,
 } from "./thread-settings-sheet-state";
@@ -147,6 +153,7 @@ const EMPTY_MODEL_FAVORITES: ReadonlyArray<{
   readonly model: string;
 }> = [];
 const FAVORITES_PROVIDER_FILTER = "@favorites";
+const NO_PROVIDER_QUOTAS: ReadonlyMap<string, ProviderQuota> = new Map();
 // Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites.
 const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
 function ProviderHeader(props: {
@@ -157,6 +164,8 @@ function ProviderHeader(props: {
   readonly nested?: boolean;
   /** Why the section has no usable models, such as a signed-out backend. */
   readonly detail?: string | undefined;
+  /** Quota this login has left for the selected model, shown while sorting by it. */
+  readonly quota?: string | undefined;
   readonly collapsible: boolean;
   readonly collapsed: boolean;
   readonly modelCount: number;
@@ -176,9 +185,17 @@ function ProviderHeader(props: {
       ) : (
         <Text className="text-sm font-t3-medium text-foreground-muted">{props.label}</Text>
       )}
-      {props.collapsible ? (
+      {props.quota ? (
         <>
           <View className="flex-1" />
+          <Text className="text-2xs font-t3-medium text-foreground-muted" numberOfLines={1}>
+            {props.quota}
+          </Text>
+        </>
+      ) : null}
+      {props.collapsible ? (
+        <>
+          {props.quota ? null : <View className="flex-1" />}
           {props.collapsed ? (
             <Text className="text-2xs font-t3-medium text-foreground-muted">
               {props.modelCount}
@@ -198,13 +215,13 @@ function ProviderHeader(props: {
   if (props.collapsible) {
     return (
       <Pressable
-        accessibilityLabel={gt(
-          "{provider}, {count, plural, one {{count} model} other {{count} models}}",
-          {
+        accessibilityLabel={[
+          gt("{provider}, {count, plural, one {{count} model} other {{count} models}}", {
             provider: props.label,
             count: props.modelCount,
-          },
-        )}
+          }),
+          ...(props.quota ? [props.quota] : []),
+        ].join(", ")}
         accessibilityRole="button"
         accessibilityState={{ expanded: !props.collapsed }}
         className="mx-4 mt-1 flex-row items-center gap-2 rounded-xl px-1 pt-2 active:opacity-60"
@@ -316,6 +333,10 @@ type ThreadSettingsSessionValue = {
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
+  readonly modelSort: ThreadSettingsModelSort;
+  readonly selectModelSort: (sort: ThreadSettingsModelSort) => void;
+  /** While sorting by most remaining: the quota of each login offering the selected model. */
+  readonly providerQuotas: ReadonlyMap<string, ProviderQuota>;
   readonly favoriteKeys: ReadonlySet<string>;
   readonly favoritesLoaded: boolean;
   readonly toggleFavorite: (option: ModelOption) => void;
@@ -512,13 +533,37 @@ function ThreadSettingsSessionProvider(
   const [providerExpansionOverrides, setProviderExpansionOverrides] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const [pendingModel, setPendingModel] = useState<ModelOption | null>(null);
-  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
-  const displayedPrompt = pendingModel ? (pendingPrompt ?? props.prompt) : props.prompt;
-
   const isApplied = (option: ModelOption) =>
     option.selection.instanceId === props.selectedModel?.instanceId &&
     option.selection.model === props.selectedModel.model;
+  const appliedModel =
+    props.providerGroups.flatMap((group) => group.models).find((option) => isApplied(option)) ??
+    null;
+  const now = useNowMinuteMs();
+  const savePreferences = useAtomCommand(saveMobilePreferences);
+  const modelSort: ThreadSettingsModelSort = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.threadSettingsModelSort ?? "default")
+    : "default";
+  // A thread that cannot change provider keeps its login.
+  const loginWithMostRemaining = (current: ModelOption | null) => {
+    if (props.lockedProviderInstanceId) return null;
+    const login = mostRemainingOrder({
+      groups: props.providerGroups,
+      selected: current,
+      providers: config?.providers ?? [],
+      now,
+    }).choice;
+    return login
+      ? pendingModelForLogin({ login, current, restoreSelection: props.restoreSelection })
+      : null;
+  };
+  // Opening the sheet with the sort on stages the login with the most quota left, once.
+  const [pendingModel, setPendingModel] = useState<ModelOption | null>(() =>
+    modelSort === "mostRemaining" ? loginWithMostRemaining(appliedModel) : null,
+  );
+  const [sortStagedKey, setSortStagedKey] = useState(() => pendingModel?.key ?? null);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const displayedPrompt = pendingModel ? (pendingPrompt ?? props.prompt) : props.prompt;
   const isDisplayed = (option: ModelOption) =>
     pendingModel ? option.key === pendingModel.key : isApplied(option);
 
@@ -529,10 +574,25 @@ function ThreadSettingsSessionProvider(
       })
     : props.optionDescriptors;
   const promptTraits = getPromptControlledTraits(displayedDescriptors, displayedPrompt);
-  const displayedModel =
-    pendingModel ??
-    props.providerGroups.flatMap((group) => group.models).find((option) => isApplied(option)) ??
-    null;
+  const displayedModel = pendingModel ?? appliedModel;
+  const mostRemaining =
+    modelSort === "mostRemaining"
+      ? mostRemainingOrder({
+          groups: providerGroups,
+          selected: displayedModel,
+          providers: config?.providers ?? [],
+          now,
+        })
+      : null;
+  const selectModelSort = (sort: ThreadSettingsModelSort) => {
+    void savePreferences({ threadSettingsModelSort: sort });
+    if (sort !== "mostRemaining") return;
+    const login = loginWithMostRemaining(displayedModel);
+    if (!login) return;
+    void Haptics.selectionAsync();
+    setSortStagedKey(login.key);
+    setPendingModel(isApplied(login) ? null : login);
+  };
   const runtimeModeChoices = withManagedRuntimeModeLimits(
     runtimeModeChoicesForSupportedModes(displayedModel?.supportedRuntimeModes),
     [config?.managedPolicy],
@@ -556,6 +616,14 @@ function ThreadSettingsSessionProvider(
         return false;
       }
       void Haptics.selectionAsync();
+      // Saving restores a login's remembered options, so the ones the sort carried over join them.
+      if (pendingModel.key === sortStagedKey) {
+        rememberModelOptions(
+          pendingModel.selection.instanceId,
+          pendingModel.selection.model,
+          pendingModel.selection.options ?? [],
+        );
+      }
       props.onSelectModel(pendingModel);
       if (pendingPrompt !== null && pendingPrompt !== props.prompt) {
         props.onPromptChange(pendingPrompt);
@@ -639,7 +707,10 @@ function ThreadSettingsSessionProvider(
   const value = {
     environmentId,
     providerInstanceId: props.providerInstanceId,
-    providerGroups,
+    providerGroups: mostRemaining?.groups ?? providerGroups,
+    modelSort,
+    selectModelSort,
+    providerQuotas: mostRemaining?.quotas ?? NO_PROVIDER_QUOTAS,
     manageHidden,
     setManageHidden,
     toggleHidden,
@@ -682,6 +753,9 @@ function ThreadSettingsSessionProvider(
           cwd={workspaceScan.cwd}
         />
       ) : null}
+      {environmentId && modelSort === "mostRemaining" ? (
+        <ProviderLimitsRefresh environmentId={environmentId} />
+      ) : null}
       {props.children}
     </ThreadSettingsSessionContext.Provider>
   );
@@ -694,6 +768,12 @@ function ProviderWorkspaceSnapshotScan(props: {
   readonly cwd: string;
 }) {
   useAtomMount(providerWorkspaceSnapshotRefresh(props));
+  return null;
+}
+
+/** The order is only as good as the readings, so the sort asks for fresh ones (throttled). */
+function ProviderLimitsRefresh(props: { readonly environmentId: EnvironmentId }) {
+  useAtomMount(limitsAutoRefreshSetAtom(environmentIdsKey([props.environmentId])));
   return null;
 }
 
@@ -710,6 +790,7 @@ type ThreadSettingsProviderCatalog = {
   readonly driver: string | undefined;
   readonly iconUrl: string | undefined;
   readonly label: string;
+  readonly quota: ProviderQuota | undefined;
   readonly collapsible: boolean;
   readonly collapsed: boolean;
   readonly modelCount: number;
@@ -750,6 +831,10 @@ type ThreadSettingsCatalogItem =
   | {
       readonly kind: "options";
       readonly key: "options";
+    }
+  | {
+      readonly kind: "catalogSettings";
+      readonly key: "catalogSettings";
     };
 
 function ThreadSettingsModelListRow(props: {
@@ -783,11 +868,20 @@ function ThreadSettingsModelListRow(props: {
 function ThreadSettingsProviderListHeader(props: {
   readonly provider: ThreadSettingsProviderCatalog;
 }) {
+  const gt = useGT();
   const session = useThreadSettingsSession();
   const onToggle = () => session.toggleProvider(props.provider.key);
+  const quota = props.provider.quota;
 
   return (
     <ProviderHeader
+      quota={
+        quota?.kind === "available"
+          ? gt("{remaining}% left", { remaining: quota.remainingPercent })
+          : quota?.kind === "exhausted"
+            ? gt("Usage limit reached")
+            : undefined
+      }
       collapsible={props.provider.collapsible}
       collapsed={props.provider.collapsed}
       driver={props.provider.driver}
@@ -920,16 +1014,23 @@ function buildThreadSettingsCatalogItems(
     const containsAppliedSelection = group.models.some(session.isApplied);
     const isNarrowed = session.providerFilter !== null || session.searchQuery.trim().length > 0;
     const collapsible = !isNarrowed;
-    const collapsed = providerSectionIsCollapsed({
-      defaultExpanded: isPrimary || containsAppliedSelection,
-      hasExpansionOverride: session.providerExpansionOverrides.has(group.providerKey),
-      isNarrowed,
-    });
+    // The login the sort staged stays open, so the pick it made is on screen.
+    const holdsStagedLogin =
+      session.modelSort === "mostRemaining" &&
+      group.models.some((model) => model.key === session.pendingModel?.key);
+    const collapsed =
+      !holdsStagedLogin &&
+      providerSectionIsCollapsed({
+        defaultExpanded: isPrimary || containsAppliedSelection,
+        hasExpansionOverride: session.providerExpansionOverrides.has(group.providerKey),
+        isNarrowed,
+      });
     const provider: ThreadSettingsProviderCatalog = {
       key: group.providerKey,
       driver,
       iconUrl: group.models[0]?.providerIconUrl,
       label: group.providerLabel,
+      quota: session.providerQuotas.get(group.providerKey),
       collapsible,
       collapsed,
       modelCount: visibleModels.length,
@@ -958,10 +1059,8 @@ function buildThreadSettingsCatalogItems(
 
 function ThreadSettingsOptionsItem(props: {
   readonly animationsReady: boolean;
-  readonly bottomInset: number;
   readonly onOpenSubmenu: (submenu: ThreadSettingsSubmenuPage) => void;
 }) {
-  const insets = useSafeAreaInsets();
   const gt = useGT();
   const m = useMessages();
   const session = useThreadSettingsSession();
@@ -973,7 +1072,7 @@ function ThreadSettingsOptionsItem(props: {
     : null;
 
   return (
-    <View style={{ paddingBottom: insets.bottom + props.bottomInset + 12 }}>
+    <View className="pb-1">
       <ChatGptSharingStatus provider={selectedProvider} />
       <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">
         <T>Options</T>
@@ -1039,7 +1138,17 @@ function ThreadSettingsOptionsItem(props: {
           />
         </Animated.View>
       </Animated.View>
+    </View>
+  );
+}
 
+function ThreadSettingsCatalogSettingsItem(props: { readonly bottomInset: number }) {
+  const insets = useSafeAreaInsets();
+  const gt = useGT();
+  const session = useThreadSettingsSession();
+
+  return (
+    <View style={{ paddingBottom: insets.bottom + props.bottomInset + 12 }}>
       <Text className="px-5 pb-2 pt-7 text-sm font-t3-medium text-foreground-muted">
         {gt("Catalog", { $context: "section heading for the model catalog" })}
       </Text>
@@ -1112,9 +1221,15 @@ function ThreadSettingsMainContent(props: {
   const catalogItems = buildThreadSettingsCatalogItems(session, m, locale);
   const hasActiveCatalogFilter =
     session.providerFilter !== null || session.searchQuery.trim().length > 0;
+  const modelItemsOrEmpty =
+    catalogItems.length === 0 ? ([{ kind: "empty", key: "empty" }] as const) : catalogItems;
+  const optionsItem = { kind: "options", key: "options" } as const;
+  // Options lead so Reasoning needs no scroll past every provider; a search leads with its matches.
   const listItems = [
-    ...(catalogItems.length === 0 ? ([{ kind: "empty", key: "empty" }] as const) : catalogItems),
-    { kind: "options", key: "options" },
+    ...(session.searchQuery.trim().length > 0
+      ? [...modelItemsOrEmpty, optionsItem]
+      : [optionsItem, ...modelItemsOrEmpty]),
+    { kind: "catalogSettings", key: "catalogSettings" },
   ] satisfies ReadonlyArray<ThreadSettingsCatalogItem>;
   const renderCatalogItem = (itemProps: LegendListRenderItemProps<ThreadSettingsCatalogItem>) => {
     const item = itemProps.item;
@@ -1147,14 +1262,15 @@ function ThreadSettingsMainContent(props: {
           </Text>
         </View>
       );
-    } else {
+    } else if (item.kind === "options") {
       content = (
         <ThreadSettingsOptionsItem
           animationsReady={animationsReady}
-          bottomInset={props.bottomInset}
           onOpenSubmenu={props.onOpenSubmenu}
         />
       );
+    } else {
+      content = <ThreadSettingsCatalogSettingsItem bottomInset={props.bottomInset} />;
     }
 
     return (
@@ -1331,7 +1447,20 @@ function ThreadSettingsModelsScreen() {
   const session = useThreadSettingsSession();
   const presentation = useThreadSettingsPickerPresentation();
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
-  const hasCustomCatalogFilter = session.providerFilter !== null || session.showLegacy;
+  const hasCustomCatalogFilter =
+    session.providerFilter !== null || session.showLegacy || session.modelSort !== "default";
+  const modelSorts: ReadonlyArray<{
+    readonly value: ThreadSettingsModelSort;
+    readonly title: string;
+  }> = [
+    { value: "default", title: gt("Default") },
+    {
+      value: "mostRemaining",
+      title: gt("Most remaining", {
+        $context: "sort order: the provider logins with the most usage quota left come first",
+      }),
+    },
+  ];
   const commitAndClose = useEffectEvent(() => {
     if (!session.commitPendingModel()) return;
     presentation.onClose();
@@ -1370,6 +1499,16 @@ function ThreadSettingsModelsScreen() {
               : "line.3.horizontal.decrease",
             items: [
               {
+                id: "sort",
+                title: gt("Sort", { $context: "noun, sort order menu" }),
+                items: modelSorts.map((sort) => ({
+                  id: `sort:${sort.value}`,
+                  title: sort.title,
+                  selected: session.modelSort === sort.value,
+                  onPress: () => session.selectModelSort(sort.value),
+                })),
+              },
+              {
                 id: "provider",
                 title: gt("Provider"),
                 items: providerFilters.map((filter) => ({
@@ -1395,6 +1534,7 @@ function ThreadSettingsModelsScreen() {
         optionsVersion={[
           session.providerFilter,
           session.providerGroups.map((group) => group.providerKey),
+          session.modelSort,
           session.showLegacy,
           session.hasLegacyModels,
         ]}

@@ -69,6 +69,11 @@ export const IssueSavedView = Schema.Struct({
 export type IssueSavedView = typeof IssueSavedView.Type;
 const isIssueSavedView = Schema.is(IssueSavedView);
 
+/** How the thread settings sheet orders the provider logins that offer the selected model. */
+export const ThreadSettingsModelSort = Schema.Literals(["default", "mostRemaining"]);
+export type ThreadSettingsModelSort = typeof ThreadSettingsModelSort.Type;
+const isThreadSettingsModelSort = Schema.is(ThreadSettingsModelSort);
+
 const ThreadListFilters = Schema.Struct({
   environmentId: Schema.NullOr(EnvironmentId),
   projectKey: Schema.NullOr(Schema.String),
@@ -177,6 +182,7 @@ export interface Preferences {
   readonly workLogScrollHeight?: WorkLogScrollHeight;
   readonly workingShelfEnabled?: boolean;
   readonly inboxSortOrder?: SidebarInboxSortOrder;
+  readonly threadSettingsModelSort?: ThreadSettingsModelSort;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -273,6 +279,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workLogScrollHeight?: WorkLogScrollHeight;
     workingShelfEnabled?: boolean;
     inboxSortOrder?: SidebarInboxSortOrder;
+    threadSettingsModelSort?: ThreadSettingsModelSort;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -419,6 +426,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isSidebarInboxSortOrder(parsed.inboxSortOrder)) {
     preferences.inboxSortOrder = parsed.inboxSortOrder;
+  }
+  if (isThreadSettingsModelSort(parsed.threadSettingsModelSort)) {
+    preferences.threadSettingsModelSort = parsed.threadSettingsModelSort;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;

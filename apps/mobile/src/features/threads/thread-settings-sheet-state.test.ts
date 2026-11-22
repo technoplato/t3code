@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 
-import { ProviderInstanceId, type ProviderOptionSelection } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ProviderOptionSelection,
+} from "@t3tools/contracts";
 import { getProviderOptionDescriptors } from "@t3tools/shared/model";
 
 import type { ModelOption } from "../../lib/modelOptions";
@@ -13,7 +17,9 @@ import {
 } from "../../state/use-model-option-memory";
 import {
   canCommitPendingModel,
+  mostRemainingOrder,
   pendingModelAfterPress,
+  pendingModelForLogin,
   visibleCatalogModels,
 } from "./thread-settings-sheet-state";
 
@@ -180,5 +186,81 @@ describe("thread settings sheet state", () => {
     expect(visible("")).toEqual(["gpt-next"]);
     expect(visible("   ")).toEqual(["gpt-next"]);
     expect(visible("Claude Opus 4.8")).toEqual(["Claude Opus 4.8"]);
+  });
+  it("orders the logins of the selected model by quota left and carries its options over", () => {
+    const now = Date.parse("2026-03-10T12:00:00.000Z");
+    const login = (instance: string, model: string, driver = "claudeAgent"): ModelOption => ({
+      ...modelOption(model),
+      key: `${instance}:${model}`,
+      providerKey: instance,
+      providerLabel: instance,
+      providerDriver: driver,
+      selection: { instanceId: ProviderInstanceId.make(instance), model },
+    });
+    const group = (instance: string, models: ReadonlyArray<ModelOption>) => ({
+      providerKey: instance,
+      providerLabel: instance,
+      models,
+    });
+    const limits = (instance: string, sessionUsed: number, weeklyUsed: number) => ({
+      instanceId: ProviderInstanceId.make(instance),
+      driver: ProviderDriverKind.make("claudeAgent"),
+      usageLimits: {
+        checkedAt: "2026-03-10T11:59:00.000Z",
+        windows: [
+          { id: "five_hour", kind: "session" as const, label: "Session", usedPercent: sessionUsed },
+          { id: "seven_day", kind: "weekly" as const, label: "Weekly", usedPercent: weeklyUsed },
+        ],
+      },
+    });
+    const selected = {
+      ...login("low", "fable"),
+      selection: {
+        ...login("low", "fable").selection,
+        options: [{ id: "effort", value: "high" }],
+      },
+    };
+    const order = mostRemainingOrder({
+      groups: [
+        group("codex", [login("codex", "fable", "codex")]),
+        group("low", [login("low", "opus"), selected]),
+        group("spent", [login("spent", "fable")]),
+        group("unread", [login("unread", "fable")]),
+        group("high", [login("high", "fable")]),
+        group("other-model", [login("other-model", "opus")]),
+      ],
+      selected,
+      providers: [limits("low", 10, 80), limits("spent", 100, 5), limits("high", 30, 40)],
+      now,
+    });
+
+    expect(order.groups.map((entry) => entry.providerKey)).toEqual([
+      "high",
+      "low",
+      "unread",
+      "spent",
+      "codex",
+      "other-model",
+    ]);
+    expect(order.choice?.key).toBe("high:fable");
+    rememberModelOptions("high", "fable", [{ id: "effort", value: "medium" }]);
+    expect(
+      pendingModelForLogin({
+        login: order.choice!,
+        current: selected,
+        restoreSelection: withRememberedModelOptions,
+      }).selection,
+    ).toEqual({
+      instanceId: "high",
+      model: "fable",
+      options: [{ id: "effort", value: "high" }],
+    });
+    expect(
+      pendingModelForLogin({
+        login: order.choice!,
+        current: login("low", "fable"),
+        restoreSelection: withRememberedModelOptions,
+      }).selection.options,
+    ).toEqual([{ id: "effort", value: "medium" }]);
   });
 });

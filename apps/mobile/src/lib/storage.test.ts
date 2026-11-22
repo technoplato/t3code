@@ -110,12 +110,17 @@ describe("mobile connection storage", () => {
     const navigationTabOrder = ["usage", "threads", "pullRequests"];
     const hiddenNavigationTabs = ["issues", "home"];
     await savePreferencesPatch({ navigationTabOrder, hiddenNavigationTabs });
-    await savePreferencesPatch({ baseFontSize: 19, inboxSortOrder: "longest_waiting" });
+    await savePreferencesPatch({
+      baseFontSize: 19,
+      inboxSortOrder: "longest_waiting",
+      threadSettingsModelSort: "mostRemaining",
+    });
     await expect(loadPreferences()).resolves.toEqual({
       navigationTabOrder,
       hiddenNavigationTabs,
       baseFontSize: 19,
       inboxSortOrder: "longest_waiting",
+      threadSettingsModelSort: "mostRemaining",
     });
   });
 
