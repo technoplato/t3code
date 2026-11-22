@@ -145,6 +145,8 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 
 export const ACP_PROTOCOL = "acp.ndjson-jsonrpc" as const;
 
+/** Failure code of a run that ended because a command it waited on went silent. */
+const ACP_BACKGROUND_COMMAND_TIMED_OUT = "background_command_timed_out";
 // Grok summaries can trail hydrated tools by over two seconds; shorter waits split the wake.
 const ACP_DEFERRED_FINALIZE_DEBOUNCE: Duration.Input = "3000 millis";
 // A model can stay silent this long before the first token of a reply the agent started itself.
@@ -638,8 +640,9 @@ export interface AcpAdapterV2Flavor {
    */
   readonly toolOutlivesPrompt?: (toolCall: AcpToolCallState) => boolean;
   /**
-   * Finalize a settled turn held only by running commands once the session has been silent for
-   * `timeout`, so a command that never reports back cannot leave the thread in Working forever.
+   * Fail a settled turn held only by running commands once the session has been silent for
+   * `timeout`, so a command that never reports back cannot leave the thread in Working forever
+   * and its unconfirmed work never reads as completed. Progress updates restart the count.
    * Other holds (questions, schedules, subagents) keep the turn open as before.
    */
   readonly postSettleCommandHold?: {
@@ -8876,7 +8879,30 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   context.tools.values().some(isRunningCommand) &&
                   !hasDeferredBackgroundWork(context, isRunningCommand)
                 ) {
-                  yield* finalizeTurn(context, context.promptSettledStatus ?? "completed");
+                  const settled = context.promptSettledStatus ?? "completed";
+                  if (settled !== "completed") {
+                    yield* finalizeTurn(context, settled);
+                    return;
+                  }
+                  // The command never reported, so its work is unconfirmed: a parent waiting
+                  // on this run must not read it as finished.
+                  yield* terminalizeOpenForegroundTools(context, "failed");
+                  const minutes = Math.max(1, Math.round(timeoutMillis / 60_000));
+                  yield* finalizeTurn(
+                    context,
+                    "failed",
+                    makeProviderFailure({
+                      class: "provider_error",
+                      code: ACP_BACKGROUND_COMMAND_TIMED_OUT,
+                      message: `${flavor.runtimeHarness ?? driver} reported nothing from a background command for ${minutes} ${minutes === 1 ? "minute" : "minutes"}, so T3 Code stopped waiting for it. The command may still be running and its work is not confirmed. Check its output, then send a message to continue.`,
+                    }),
+                  );
+                  yield* Effect.logWarning("orchestration-v2.acp-command-hold-timed-out", {
+                    driver,
+                    providerSessionId: input.providerSessionId,
+                    providerTurnId: context.providerTurnId,
+                    timeoutMillis,
+                  });
                   return;
                 }
                 // Something else still holds the turn; count silence again once it clears.

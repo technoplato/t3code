@@ -1360,10 +1360,11 @@ describe("AntigravityAdapterV2 work after the prompt ends", () => {
   );
 
   // A command whose terminal update never arrives would hold the run in Working forever with
-  // an empty pending list and a finished reply above Stop.
-  it.effect("settles a silent background command after the post-settle hold timeout", () =>
+  // an empty pending list and a finished reply above Stop. Its work is unconfirmed, so the run
+  // must not read as completed to a parent waiting on it.
+  it.effect("fails a silent background command's run after the post-settle hold timeout", () =>
     Effect.gen(function* () {
-      const { command, offers, startTurn, until, throughPromptSettled } =
+      const { command, usage, offers, send, startTurn, until, throughPromptSettled } =
         yield* openSessionWithRunningCommand({ WaitMsBeforeAsync: 10000 });
       yield* startTurn(1, false);
       const prompt = yield* throughPromptSettled;
@@ -1376,10 +1377,13 @@ describe("AntigravityAdapterV2 work after the prompt ends", () => {
       const terminal = run.at(-1);
       assert.equal(
         terminal?.type === "turn.terminal" && terminal.status,
-        "completed",
-        "the bounded hold finalizes the turn instead of leaving it running forever",
+        "failed",
+        "the bounded hold ends the turn, and not as finished work",
       );
-      assert.equal(terminal?.type === "turn.terminal" && terminal.failure, null);
+      const failure = terminal?.type === "turn.terminal" ? terminal.failure : null;
+      assert.equal(failure?.code, "background_command_timed_out");
+      assert.equal(failure?.class, "provider_error");
+      assert.include(failure?.message, "30 minutes", "the failure says why the run ended");
       assert.lengthOf(offers, 0, "a silent command produces no wake on its own");
       const commandItem = [...prompt, ...run].findLast(
         (event) =>
@@ -1387,9 +1391,23 @@ describe("AntigravityAdapterV2 work after the prompt ends", () => {
           event.turnItem.nativeItemRef?.nativeId === command.toolCallId,
       );
       assert.isTrue(
-        commandItem?.type === "turn_item.updated" && commandItem.turnItem.status === "completed",
+        commandItem?.type === "turn_item.updated" && commandItem.turnItem.status === "failed",
         "the silent command is no longer left as live activity on a settled run",
       );
+
+      // The command was only slow: its late result still wakes the thread.
+      yield* send({
+        sessionUpdate: "tool_call_update",
+        ...command,
+        status: "completed",
+        rawOutput: { output: "Command exited with code 0.", exit_code: 0 },
+      });
+      yield* send({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Here is the chart." },
+      });
+      yield* send(usage);
+      assert.lengthOf(offers, 1, "a late result continues the thread in a new run");
     }).pipe(Effect.provide(layerSession)),
   );
 
