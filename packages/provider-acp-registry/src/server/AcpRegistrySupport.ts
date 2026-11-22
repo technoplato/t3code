@@ -47,6 +47,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { collectUint8StreamText } from "@t3tools/provider-core/server/collectStreamText";
+import { makeRuntimeTempReclaimer } from "@t3tools/provider-core/server/runtimeTempDirectory";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 
@@ -709,18 +710,54 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const preparedBinaryReservations = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
 
   const runtimeTempDir = input.runtimeTempDir;
+  // An agent's commands inherit its run directory as TMPDIR and can outlive it.
+  const runtimeTempReclaimer = yield* makeRuntimeTempReclaimer({
+    platform,
+    remove: (directory) => {
+      const remove = fileSystem.remove(directory, { recursive: true, force: true });
+      // Windows keeps a killed process's files locked for a few seconds after it exits.
+      const retry = remove.pipe(
+        Effect.retry({ schedule: Schedule.spaced("2 seconds"), times: 30 }),
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not remove an ACP agent temp directory.", { directory, cause }),
+        ),
+      );
+      return remove.pipe(Effect.catch(() => Effect.asVoid(Effect.forkDetach(retry))));
+    },
+  }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
   if (runtimeTempDir !== undefined) {
     // Move leftovers of a previous server aside so the slow delete cannot race new runs.
     const parent = path.dirname(runtimeTempDir);
     const prefix = `${path.basename(runtimeTempDir)}.old-`;
     const retire = Effect.gen(function* () {
       if (yield* fileSystem.exists(runtimeTempDir)) {
-        yield* fileSystem.makeTempDirectory({ directory: parent, prefix }).pipe(
-          Effect.flatMap((retired) =>
-            fileSystem.rename(runtimeTempDir, path.join(retired, "runtime")),
-          ),
-          Effect.catch(() => fileSystem.remove(runtimeTempDir, { recursive: true, force: true })),
+        const runs = (yield* fileSystem.readDirectory(runtimeTempDir)).map((entry) =>
+          path.join(runtimeTempDir, entry),
         );
+        const used = yield* runtimeTempReclaimer.inUse(runs);
+        if (used.length === 0) {
+          yield* fileSystem.makeTempDirectory({ directory: parent, prefix }).pipe(
+            Effect.flatMap((retired) =>
+              fileSystem.rename(runtimeTempDir, path.join(retired, "runtime")),
+            ),
+            Effect.catch(() => fileSystem.remove(runtimeTempDir, { recursive: true, force: true })),
+          );
+        } else {
+          // A process an earlier run started still uses its directory, so that one stays put.
+          yield* Effect.logWarning(
+            "Kept ACP agent temp directories that live processes still use.",
+            { count: used.length },
+          );
+          const retired = yield* fileSystem.makeTempDirectory({ directory: parent, prefix });
+          yield* Effect.forEach(
+            runs.filter((run) => !used.includes(run)),
+            (run) =>
+              fileSystem
+                .rename(run, path.join(retired, path.basename(run)))
+                .pipe(Effect.catch(() => fileSystem.remove(run, { recursive: true, force: true }))),
+            { discard: true },
+          );
+        }
       }
       return yield* fileSystem.readDirectory(parent);
     }).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
@@ -741,7 +778,8 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
     );
   }
 
-  // One directory per process, removed after it exits; the next server start sweeps what Windows kept.
+  // One directory per process, removed after it exits unless a process it started still uses it;
+  // the next server start sweeps what was kept.
   const acquireRuntimeTempEnvironment = Effect.fn("AcpRegistryCatalog.acquireRuntimeTemp")(
     function* (root: string, environment: NodeJS.ProcessEnv) {
       const directory = yield* Effect.acquireRelease(
@@ -756,15 +794,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
               }),
           ),
         ),
-        (directory) => {
-          const remove = fileSystem.remove(directory, { recursive: true, force: true });
-          // Windows keeps a killed process's files locked for a few seconds after it exits.
-          const retry = remove.pipe(
-            Effect.retry({ schedule: Schedule.spaced("2 seconds"), times: 30 }),
-            Effect.catch(() => Effect.logWarning("Could not remove an ACP agent temp directory.")),
-          );
-          return remove.pipe(Effect.catch(() => Effect.asVoid(Effect.forkDetach(retry))));
-        },
+        runtimeTempReclaimer.release,
       );
       if (platform !== "win32") return { ...environment, TMPDIR: directory };
       // Windows env keys are case-insensitive; drop aliases so ours win.

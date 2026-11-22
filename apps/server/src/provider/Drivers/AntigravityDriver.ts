@@ -57,6 +57,7 @@ import {
   type AntigravityAcpRuntimeInput,
 } from "../acp/AntigravityAcpSupport.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { makeRuntimeTempReclaimer } from "@t3tools/provider-core/server/runtimeTempDirectory";
 import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
 import {
   removeAntigravitySessionFiles,
@@ -198,11 +199,27 @@ export const AntigravityDriver: ProviderDriver<
       ),
       Effect.orElseSucceed(() => undefined),
     );
+    const runtimeTempReclaimer = yield* makeRuntimeTempReclaimer({
+      platform: yield* HostProcess.Platform,
+      // Best-effort on Windows, where handles may outlive the kill; the next start sweeps it.
+      remove: (directory) =>
+        fileSystem.remove(directory, { recursive: true, force: true }).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Could not remove an Antigravity runtime temp directory.", {
+              directory,
+              cause,
+            }),
+          ),
+        ),
+    }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
     for (const directory of [
       directories.runtimeTemp,
       path.join(profileDirectory, "antigravity-acp", "tmp"),
     ]) {
-      const removeRetired = yield* retireAntigravityRuntimeTempDirs(directory).pipe(
+      const removeRetired = yield* retireAntigravityRuntimeTempDirs(
+        directory,
+        runtimeTempReclaimer.inUse,
+      ).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
       );
@@ -275,8 +292,8 @@ export const AntigravityDriver: ProviderDriver<
         ),
       );
       // Use one directory per process; shared cleanup could delete files another session still reads.
-      // Remove after the child dies, best-effort on Windows where handles may outlive the kill;
-      // the next driver start sweeps leftovers.
+      // Released after the child dies. Commands the agent started inherit it as TMPDIR, so it is
+      // removed only once none of them is alive; the next driver start sweeps leftovers.
       const runtimeTempDirectory = yield* Effect.acquireRelease(
         fileSystem.makeTempDirectory({ directory: profile.tempDirectory, prefix: "run-" }).pipe(
           Effect.mapError(
@@ -289,14 +306,7 @@ export const AntigravityDriver: ProviderDriver<
               }),
           ),
         ),
-        (directory) =>
-          fileSystem
-            .remove(directory, { recursive: true, force: true })
-            .pipe(
-              Effect.catch(() =>
-                Effect.logWarning("Could not remove an Antigravity runtime temp directory."),
-              ),
-            ),
+        runtimeTempReclaimer.release,
       );
       return {
         executable,

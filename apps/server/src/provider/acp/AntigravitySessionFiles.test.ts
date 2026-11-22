@@ -249,6 +249,28 @@ it.layer(NodeServices.layer)("retireAntigravityRuntimeTempDirs", (it) => {
     }),
   );
 
+  // A daemon a previous server's run started still has that run's directory as its TMPDIR.
+  it.effect("leaves a run directory a live process still uses where it is", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const parent = yield* fs.makeTempDirectoryScoped();
+      const runtimeTemp = path.join(parent, "abc123");
+      const live = path.join(runtimeTemp, "run-live");
+      yield* fs.makeDirectory(live, { recursive: true });
+      yield* fs.writeFileString(path.join(live, "daemon.sock"), "");
+      yield* fs.makeDirectory(path.join(runtimeTemp, "run-dead", "_MEI123"), { recursive: true });
+
+      const removeRetired = yield* retireAntigravityRuntimeTempDirs(runtimeTemp, (directories) =>
+        Effect.succeed(directories.filter((directory) => directory === live)),
+      );
+      yield* removeRetired;
+      expect(yield* fs.readDirectory(runtimeTemp)).toEqual(["run-live"]);
+      expect(yield* fs.exists(path.join(live, "daemon.sock"))).toBe(true);
+      expect(yield* fs.readDirectory(parent)).toEqual(["abc123"]);
+    }),
+  );
+
   it.effect(
     "deletes leftovers inline when they cannot be moved aside, such as on a full disk",
     () =>

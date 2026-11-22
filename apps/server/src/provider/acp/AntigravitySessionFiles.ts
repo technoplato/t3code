@@ -174,18 +174,42 @@ const warnRuntimeTempLeftovers = Effect.logWarning(
 /**
  * Sweep only private runtimes before launch; Windows does not protect live extracted data files from deletion.
  * Moves leftovers aside and returns their slow deletion (seconds on Windows) to run off the startup path.
+ * A run directory `inUse` reports stays where it is: a process an earlier run started still uses it.
  */
 export const retireAntigravityRuntimeTempDirs = Effect.fn("retireAntigravityRuntimeTempDirs")(
-  function* (tempDirectory: string) {
+  function* (
+    tempDirectory: string,
+    inUse?: (directories: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<string>>,
+  ) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const parent = path.dirname(tempDirectory);
     const prefix = `${path.basename(tempDirectory)}.old-`;
     if (yield* fs.exists(tempDirectory)) {
-      yield* fs.makeTempDirectory({ directory: parent, prefix }).pipe(
-        Effect.flatMap((retired) => fs.rename(tempDirectory, path.join(retired, "runtime"))),
-        Effect.catch(() => fs.remove(tempDirectory, { recursive: true, force: true })),
+      const runs = (yield* fs.readDirectory(tempDirectory)).map((entry) =>
+        path.join(tempDirectory, entry),
       );
+      const used = inUse === undefined ? [] : yield* inUse(runs);
+      if (used.length === 0) {
+        yield* fs.makeTempDirectory({ directory: parent, prefix }).pipe(
+          Effect.flatMap((retired) => fs.rename(tempDirectory, path.join(retired, "runtime"))),
+          Effect.catch(() => fs.remove(tempDirectory, { recursive: true, force: true })),
+        );
+      } else {
+        yield* Effect.logWarning(
+          "Kept Antigravity runtime temp directories that live processes still use.",
+          { count: used.length },
+        );
+        const retired = yield* fs.makeTempDirectory({ directory: parent, prefix });
+        yield* Effect.forEach(
+          runs.filter((run) => !used.includes(run)),
+          (run) =>
+            fs
+              .rename(run, path.join(retired, path.basename(run)))
+              .pipe(Effect.catch(() => fs.remove(run, { recursive: true, force: true }))),
+          { discard: true },
+        );
+      }
     }
     const entries = yield* fs.readDirectory(parent).pipe(Effect.orElseSucceed(() => []));
     return Effect.forEach(
