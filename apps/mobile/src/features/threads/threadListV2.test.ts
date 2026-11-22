@@ -1805,6 +1805,27 @@ describe("Working section beta", () => {
     expect(ids(layout).slice(1)).toEqual(["finished-early", "finished-late", "asks-approval"]);
   });
 
+  it("orders the inbox from longest waiting to shortest waiting when inboxSortOrder is longest_waiting", () => {
+    const longestWaiting = build({ inboxSortOrder: "longest_waiting" });
+    expect(ids(longestWaiting)).toEqual([
+      "pinned-working",
+      "finished-early",
+      "asks-approval",
+      "finished-late",
+    ]);
+
+    const withoutWorkingShelf = build({
+      workingShelfEnabled: false,
+      inboxSortOrder: "longest_waiting",
+    });
+    expect(ids(withoutWorkingShelf).slice(1)).toEqual([
+      "finished-early",
+      "asks-approval",
+      "finished-late",
+      "working",
+    ]);
+  });
+
   it("places the shelf after queued tasks and before snoozed and settled threads", () => {
     const layout = buildThreadListV2Items({
       threads: [

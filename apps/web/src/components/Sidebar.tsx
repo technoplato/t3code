@@ -61,6 +61,7 @@ import {
   type ContextMenuSource,
   ProjectId,
   type ScopedThreadRef,
+  SidebarInboxSortOrder,
   type ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -69,6 +70,8 @@ import {
 } from "@t3tools/client-runtime/state/threads";
 
 import {
+  ArrowDownWideNarrowIcon,
+  ArrowUpNarrowWideIcon,
   CheckIcon,
   ChevronDownIcon,
   FolderIcon,
@@ -136,7 +139,7 @@ import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { updateClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -254,6 +257,16 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItemDetail,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "./ui/menu";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
@@ -347,6 +360,7 @@ const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
 
 const inboxReturns = createInboxReturnTracker();
+const isSidebarInboxSortOrder = Schema.is(SidebarInboxSortOrder);
 
 type SidebarOptimisticDrop = {
   readonly key: string;
@@ -368,6 +382,7 @@ interface SidebarThreadPartitionInput {
   readonly connectedEnvironmentIds: readonly EnvironmentId[];
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
+  readonly inboxSortOrder: SidebarInboxSortOrder;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
@@ -396,21 +411,25 @@ function resolveDraggedOrders(input: {
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
+  readonly inboxSortOrder: SidebarInboxSortOrder;
 }): typeof NO_DRAGGED_ORDERS {
-  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
+  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled, inboxSortOrder } =
+    input;
   const thread = threadByKey.get(drag.activeKey);
   if (thread === undefined) return NO_DRAGGED_ORDERS;
   const others = (list: readonly EnvironmentThreadShell[]) =>
     list.filter((candidate) => threadShellKey(candidate) !== drag.activeKey);
+  const activeTimeOrdered = workingShelfEnabled || inboxSortOrder === "longest_waiting";
   return {
     settledOrder: sortSettledThreads([
       ...others(settledThreads),
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
-    activeOrder: workingShelfEnabled
+    activeOrder: activeTimeOrdered
       ? sortInboxThreadsByReturn(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
           inboxReturns.returnedAt,
+          inboxSortOrder,
         ).map(threadShellKey)
       : undefined,
   };
@@ -458,6 +477,8 @@ function useSidebarThreads(input: {
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
     useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
+  const inboxSortOrder = useClientSettings((s) => s.sidebarInboxSortOrder);
+  const activeTimeOrdered = workingShelfEnabled || inboxSortOrder === "longest_waiting";
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -501,6 +522,7 @@ function useSidebarThreads(input: {
     connectedEnvironmentIds,
     optimisticDrop,
     workingShelfEnabled,
+    inboxSortOrder,
     sortActiveBySend: folderGroups !== null,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
@@ -582,6 +604,8 @@ function useSidebarThreads(input: {
     ...partition,
     threads,
     workingShelfEnabled,
+    inboxSortOrder,
+    activeTimeOrdered,
     searchableThreads: [
       ...pinnedThreads,
       ...activeThreads,
@@ -636,11 +660,14 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
+    inboxSortOrder,
     sortActiveBySend,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
-  const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
+  const inboxObservation = inboxReturns.observe(
+    workingShelfEnabled || inboxSortOrder === "longest_waiting" ? threads : null,
+  );
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
@@ -695,10 +722,14 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   // Availability gates dragging only; sorting must stay consistent across clients.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
+    ? inboxSortOrder === "longest_waiting"
+      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt, "longest_waiting")
+      : sortWorkingThreadsBySend(active)
     : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
+      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt, inboxSortOrder)
+      : inboxSortOrder === "longest_waiting"
+        ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt, "longest_waiting")
+        : sortThreadsForSidebar(active);
   return {
     pinnedThreads:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -1316,6 +1347,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const {
     workingShelfEnabled,
+    inboxSortOrder,
+    activeTimeOrdered,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -2080,6 +2113,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settledThreads,
           activeThreads,
           workingShelfEnabled,
+          inboxSortOrder,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
@@ -2118,7 +2152,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             activeOrder: activeKeys,
             activeKeysById,
             activeReorderableKeys: activeReorderableThreadKeys,
-            activeTimeOrdered: workingShelfEnabled,
+            activeTimeOrdered,
           }).kind !== "none"
         );
       },
@@ -2152,7 +2186,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeOrder: activeKeys,
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
-      activeTimeOrdered: workingShelfEnabled,
+      activeTimeOrdered,
     });
     if (plan.kind === "none") return;
     if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
@@ -3058,6 +3092,61 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
               hasProjects={projectGroups.length > 0}
+              inboxSort={
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <SidebarHeaderIconButton
+                        label={
+                          inboxSortOrder === "longest_waiting"
+                            ? gt("Sort inbox: Longest waiting")
+                            : workingShelfEnabled
+                              ? gt("Sort inbox: Recently done")
+                              : gt("Sort inbox: Manual order")
+                        }
+                      />
+                    }
+                  >
+                    {inboxSortOrder === "longest_waiting" ? (
+                      <ArrowUpNarrowWideIcon className="size-4 text-sidebar-foreground" />
+                    ) : (
+                      <ArrowDownWideNarrowIcon className="size-4" />
+                    )}
+                  </MenuTrigger>
+                  <MenuPopup align="start" width="content">
+                    <MenuGroup>
+                      <MenuGroupLabel>{gt("Sort inbox")}</MenuGroupLabel>
+                      <MenuRadioGroup
+                        value={inboxSortOrder}
+                        onValueChange={(value) => {
+                          if (isSidebarInboxSortOrder(value)) {
+                            void updateClientSettings({ sidebarInboxSortOrder: value });
+                          }
+                        }}
+                      >
+                        <MenuRadioItem value="recent">
+                          <span className="flex flex-col">
+                            <span>
+                              {workingShelfEnabled ? gt("Recently done") : gt("Manual order")}
+                            </span>
+                            <MenuItemDetail>
+                              {workingShelfEnabled
+                                ? gt("Most recently finished first")
+                                : gt("Your custom drag order")}
+                            </MenuItemDetail>
+                          </span>
+                        </MenuRadioItem>
+                        <MenuRadioItem value="longest_waiting">
+                          <span className="flex flex-col">
+                            <span>{gt("Longest waiting")}</span>
+                            <MenuItemDetail>{gt("Longest waiting for you first")}</MenuItemDetail>
+                          </span>
+                        </MenuRadioItem>
+                      </MenuRadioGroup>
+                    </MenuGroup>
+                  </MenuPopup>
+                </Menu>
+              }
               projectScope={
                 <Combobox
                   items={projectScopeItems}

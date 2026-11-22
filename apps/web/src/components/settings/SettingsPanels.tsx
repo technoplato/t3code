@@ -23,6 +23,7 @@ import {
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
   type QuitConfirmationMode,
+  SidebarInboxSortOrder,
   SidebarProjectSortOrder,
   ScreenReaderAnnouncements,
   ToolCallVisibility,
@@ -149,6 +150,12 @@ const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string>
   manual: msg("Manual"),
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
+
+const SIDEBAR_INBOX_SORT_ORDER_LABELS: Record<SidebarInboxSortOrder, string> = {
+  recent: msg("Recently done"),
+  longest_waiting: msg("Longest waiting"),
+};
+const isSidebarInboxSortOrder = Schema.is(SidebarInboxSortOrder);
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: msg("System default"),
@@ -533,6 +540,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? [gt("Working section")]
       : []),
+    ...(settings.sidebarInboxSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarInboxSortOrder
+      ? [gt("Inbox order")]
+      : []),
     ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
       ? [gt("Auto-settle inactive threads")]
       : []),
@@ -736,6 +746,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
+      sidebarInboxSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarInboxSortOrder,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -980,6 +991,50 @@ export function GeneralSettingsPanel() {
               }
               aria-label={gt("Working section")}
             />
+          }
+        />
+        <SettingsRow
+          {...setting("inbox-sort-order")}
+          description={
+            <T>
+              Order active threads waiting for your attention from most recently finished or longest
+              waiting first.
+            </T>
+          }
+          resetAction={
+            settings.sidebarInboxSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarInboxSortOrder ? (
+              <SettingResetButton
+                ariaLabel={gt("Reset inbox order to default")}
+                onClick={() =>
+                  updateSettings({
+                    sidebarInboxSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarInboxSortOrder,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sidebarInboxSortOrder}
+              onValueChange={(value) => {
+                if (isSidebarInboxSortOrder(value)) {
+                  updateSettings({ sidebarInboxSortOrder: value });
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label={gt("Inbox order")}>
+                <SelectValue>
+                  {m(SIDEBAR_INBOX_SORT_ORDER_LABELS[settings.sidebarInboxSortOrder])}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {SidebarInboxSortOrder.literals.map((sortOrder) => (
+                  <SelectItem hideIndicator key={sortOrder} value={sortOrder}>
+                    {m(SIDEBAR_INBOX_SORT_ORDER_LABELS[sortOrder])}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
       </SettingsSection>

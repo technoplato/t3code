@@ -18,7 +18,11 @@ import {
   PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
-import { ToolCallVisibility, WorkLogScrollHeight } from "@t3tools/contracts/settings";
+import {
+  SidebarInboxSortOrder,
+  ToolCallVisibility,
+  WorkLogScrollHeight,
+} from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
@@ -172,6 +176,7 @@ export interface Preferences {
   readonly expandToolCallsByDefault?: boolean;
   readonly workLogScrollHeight?: WorkLogScrollHeight;
   readonly workingShelfEnabled?: boolean;
+  readonly inboxSortOrder?: SidebarInboxSortOrder;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -229,6 +234,7 @@ export class MobilePreferencesStore extends Context.Service<
 
 const isToolCallVisibility = Schema.is(ToolCallVisibility);
 const isWorkLogScrollHeight = Schema.is(WorkLogScrollHeight);
+const isSidebarInboxSortOrder = Schema.is(SidebarInboxSortOrder);
 const isPullRequestMergeMethod = Schema.is(PullRequestMergeMethod);
 
 function sanitizePreferences(parsed: Preferences): Preferences {
@@ -266,6 +272,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     expandToolCallsByDefault?: boolean;
     workLogScrollHeight?: WorkLogScrollHeight;
     workingShelfEnabled?: boolean;
+    inboxSortOrder?: SidebarInboxSortOrder;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -409,6 +416,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.workingShelfEnabled === "boolean") {
     preferences.workingShelfEnabled = parsed.workingShelfEnabled;
+  }
+  if (isSidebarInboxSortOrder(parsed.inboxSortOrder)) {
+    preferences.inboxSortOrder = parsed.inboxSortOrder;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;

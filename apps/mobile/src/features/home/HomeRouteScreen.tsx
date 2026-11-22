@@ -40,6 +40,7 @@ import { useSelectWorkspaceTab } from "../layout/workspace/useSelectWorkspaceTab
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import { WorkspaceListEmptyDetail } from "../layout/workspace/WorkspaceListEmptyDetail";
 import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
+import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import { buildHomeListFilterMenuItems, homeListFilterEnvironments } from "./home-list-filter-menu";
 
 export function HomeRouteScreen() {
@@ -119,6 +120,8 @@ export function HomeRouteScreen() {
     setSelectedEnvironmentId,
     setSelectedProjectKey,
   } = useHomeListOptions(availableEnvironmentIds);
+  const { workingShelfEnabled, inboxSortOrder, setInboxSortOrder } =
+    useThreadListV2ShelfPreferences();
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const projectScopes = useMemo(
     () =>
@@ -173,15 +176,21 @@ export function HomeRouteScreen() {
             accessibilityLabel: gt("Search threads"),
           }}
           filter={{
-            customized: selectedEnvironmentId !== null || selectedProjectKey !== null,
+            customized:
+              selectedEnvironmentId !== null ||
+              selectedProjectKey !== null ||
+              inboxSortOrder !== "recent",
             items: buildHomeListFilterMenuItems(
               {
                 environments,
                 projects: projectFilterOptions,
                 selectedEnvironmentId,
                 selectedProjectKey,
+                inboxSortOrder,
+                workingShelfEnabled,
                 onEnvironmentChange: setSelectedEnvironmentId,
                 onProjectChange: setSelectedProjectKey,
+                onInboxSortOrderChange: setInboxSortOrder,
               },
               m,
             ),

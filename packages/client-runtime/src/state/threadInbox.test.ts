@@ -261,3 +261,55 @@ describe("sortWorkingThreadsBySend", () => {
     ).toEqual(["sent-last", "sent-first", "launched"]);
   });
 });
+
+describe("sortInboxThreadsByReturn", () => {
+  const finishedThread = (
+    id: string,
+    options: {
+      createdAt: string;
+      completedAt?: string | null;
+      pendingUserInputAt?: string | null;
+    },
+  ) => ({
+    ...thread(id, false),
+    createdAt: options.createdAt,
+    pendingUserInputAt: options.pendingUserInputAt ?? null,
+    latestRun:
+      options.completedAt === undefined
+        ? null
+        : {
+            runId: RunId.make(`run:${id}`),
+            status: "completed" as const,
+            requestedAt: options.createdAt,
+            startedAt: options.createdAt,
+            completedAt: options.completedAt,
+            assistantMessageId: null,
+          },
+  });
+
+  it("supports ordering from longest waiting to shortest waiting as well as most recently done", () => {
+    const oldest = finishedThread("oldest", {
+      createdAt: "2026-06-01T08:00:00.000Z",
+      completedAt: "2026-06-01T09:00:00.000Z",
+    });
+    const middle = finishedThread("middle", {
+      createdAt: "2026-06-01T08:30:00.000Z",
+      completedAt: null,
+      pendingUserInputAt: "2026-06-01T10:30:00.000Z",
+    });
+    const newest = finishedThread("newest", {
+      createdAt: "2026-06-01T07:00:00.000Z",
+      completedAt: "2026-06-01T11:45:00.000Z",
+    });
+
+    expect(
+      sortInboxThreadsByReturn([middle, oldest, newest], undefined, "recent").map((t) => t.id),
+    ).toEqual(["newest", "middle", "oldest"]);
+
+    expect(
+      sortInboxThreadsByReturn([middle, oldest, newest], undefined, "longest_waiting").map(
+        (t) => t.id,
+      ),
+    ).toEqual(["oldest", "middle", "newest"]);
+  });
+});

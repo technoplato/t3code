@@ -1,8 +1,8 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 
 import type { WorkspaceEnvironment } from "../../state/workspaceModel";
-import { homeListFilterEnvironments } from "./home-list-filter-menu";
+import { buildHomeListFilterMenuItems, homeListFilterEnvironments } from "./home-list-filter-menu";
 
 function environment(
   environmentId: string,
@@ -32,4 +32,33 @@ it("offers only switched-on environments, sorted by label", () => {
     { environmentId: "env-desk", label: "Desk", connectionState: "connected" },
     { environmentId: "env-studio", label: "Studio", connectionState: "connected" },
   ]);
+});
+
+it("includes a sort section for recently done vs longest waiting", () => {
+  const onInboxSortOrderChange = vi.fn();
+  const items = buildHomeListFilterMenuItems({
+    environments: [{ environmentId: "env-desk" as EnvironmentId, label: "Desk" }],
+    projects: [],
+    selectedEnvironmentId: null,
+    selectedProjectKey: null,
+    inboxSortOrder: "longest_waiting",
+    workingShelfEnabled: true,
+    onEnvironmentChange: () => undefined,
+    onProjectChange: () => undefined,
+    onInboxSortOrderChange,
+  });
+
+  const sortSection = items.find((item) => item.id === "sort");
+  expect(sortSection && "items" in sortSection ? sortSection.items : []).toMatchObject([
+    { id: "sort:recent", title: "Recently done", selected: false },
+    { id: "sort:longest_waiting", title: "Longest waiting", selected: true },
+  ]);
+
+  if (sortSection && "items" in sortSection) {
+    const first = sortSection.items[0];
+    if (first && "onPress" in first) {
+      first.onPress();
+    }
+  }
+  expect(onInboxSortOrderChange).toHaveBeenCalledWith("recent");
 });

@@ -1,10 +1,15 @@
-import { T, useGT } from "gt-react-native";
+import { msg, T, useGT, useMessages } from "gt-react-native";
 import { Button } from "../../components/ui/Button";
+import { ListChoiceRow } from "../../components/ui/ListChoiceRow";
 import {
   AuthSettingsWriteScope,
   isManagedSettingPath,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
+import {
+  DEFAULT_SIDEBAR_INBOX_SORT_ORDER,
+  type SidebarInboxSortOrder,
+} from "@t3tools/contracts/settings";
 import { useEnvironmentsWithScope } from "../../state/session";
 import { AutoSettleDaysField } from "./components/AutoSettleDaysField";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -209,32 +214,69 @@ export function AutoSettleSettingsRows(props: {
   );
 }
 
+const INBOX_SORT_ORDER_OPTIONS: ReadonlyArray<{
+  readonly value: SidebarInboxSortOrder;
+  readonly label: string;
+}> = [
+  { value: "recent", label: msg("Recently done") },
+  { value: "longest_waiting", label: msg("Longest waiting") },
+];
+
 export function WorkingSectionSettings() {
   const gt = useGT();
+  const m = useMessages();
   const savePreferences = useAtomCommand(saveMobilePreferences);
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const workingShelfEnabled =
-    AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
+  const loaded = AsyncResult.isSuccess(preferences);
+  const workingShelfEnabled = loaded && preferences.value.workingShelfEnabled !== false;
+  const inboxSortOrder = loaded
+    ? (preferences.value.inboxSortOrder ?? DEFAULT_SIDEBAR_INBOX_SORT_ORDER)
+    : null;
 
   return (
-    <View className="gap-3">
-      <SettingsSection title={gt("Sidebar")}>
-        <SettingsSwitchRow
-          icon="bolt.circle"
-          label={gt("Working section")}
-          value={workingShelfEnabled}
-          onValueChange={(value) => {
-            void savePreferences({ workingShelfEnabled: value });
-          }}
-        />
-      </SettingsSection>
-      <Text className="px-2 text-sm text-foreground-muted">
-        <T>
-          Fold working and monitoring threads into a Working section. They return to the top of the
-          list when they need you. While this is on, active threads are ordered by time and cannot
-          be moved.
-        </T>
-      </Text>
+    <View className="gap-4">
+      <View className="gap-3">
+        <SettingsSection title={gt("Sidebar")}>
+          <SettingsSwitchRow
+            icon="bolt.circle"
+            label={gt("Working section")}
+            value={workingShelfEnabled}
+            onValueChange={(value) => {
+              void savePreferences({ workingShelfEnabled: value });
+            }}
+          />
+        </SettingsSection>
+        <Text className="px-2 text-sm text-foreground-muted">
+          <T>
+            Fold working and monitoring threads into a Working section. They return to the top of
+            the list when they need you. While this is on, active threads are ordered by time and
+            cannot be moved.
+          </T>
+        </Text>
+      </View>
+
+      <View className="gap-3">
+        <SettingsSection title={gt("Inbox order")}>
+          {INBOX_SORT_ORDER_OPTIONS.map((option, index) => (
+            <ListChoiceRow
+              key={option.value}
+              label={m(option.label)}
+              selected={inboxSortOrder === option.value}
+              separated={index > 0}
+              disabled={inboxSortOrder === null}
+              onPress={() => {
+                void savePreferences({ inboxSortOrder: option.value });
+              }}
+            />
+          ))}
+        </SettingsSection>
+        <Text className="px-2 text-sm text-foreground-muted">
+          <T>
+            Order active threads waiting for your attention from most recently finished or longest
+            waiting first.
+          </T>
+        </Text>
+      </View>
     </View>
   );
 }

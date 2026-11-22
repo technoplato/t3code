@@ -1153,6 +1153,25 @@ describe("Working shelf (beta)", () => {
       expect(sorted.map((entry) => entry.id)).toEqual(["old-finished-now", "reopened", "new"]);
     });
 
+    it("puts the longest-waiting thread on top when sortOrder is longest_waiting", () => {
+      const sorted = sortInboxThreadsByReturn(
+        [
+          thread("new", { createdAt: "2026-03-09T11:00:00.000Z" }),
+          thread("old-finished-now", {
+            createdAt: "2026-03-01T09:00:00.000Z",
+            completedAt: "2026-03-09T12:00:00.000Z",
+          }),
+          thread("reopened", {
+            createdAt: "2026-03-02T09:00:00.000Z",
+            unsettledAt: "2026-03-09T11:30:00.000Z",
+          }),
+        ],
+        undefined,
+        "longest_waiting",
+      );
+      expect(sorted.map((entry) => entry.id)).toEqual(["new", "reopened", "old-finished-now"]);
+    });
+
     it("counts a return the server does not stamp, like an approval request", () => {
       const waiting = thread("asks-approval", {
         createdAt: "2026-03-09T09:00:00.000Z",

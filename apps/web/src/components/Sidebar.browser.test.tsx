@@ -462,3 +462,96 @@ describe("sidebar settled pagination", () => {
     expect(screen.container.querySelectorAll("[data-thread-item]")).toHaveLength(loadedRows);
   });
 });
+
+describe("sidebar inbox sort", () => {
+  it("reorders active threads from longest waiting to shortest waiting via the header sort menu", async () => {
+    using stack = new DisposableStack();
+    const previousSettings = getClientSettings();
+    stack.defer(() => __setClientSettingsForTests(previousSettings));
+    const activeProject = project("active");
+    const olderDone = makeThreadFixture({
+      environmentId: activeProject.environmentId,
+      projectId: activeProject.id,
+      id: ThreadId.make("older-done"),
+      title: "Older done",
+      createdAt: "2026-06-01T08:00:00.000Z",
+      runtime: null,
+      latestRun: {
+        runId: "run-older" as never,
+        status: "completed",
+        requestedAt: "2026-06-01T08:00:00.000Z",
+        startedAt: "2026-06-01T08:00:00.000Z",
+        completedAt: "2026-06-01T09:00:00.000Z",
+        assistantMessageId: null,
+      },
+    });
+    const newerDone = makeThreadFixture({
+      environmentId: activeProject.environmentId,
+      projectId: activeProject.id,
+      id: ThreadId.make("newer-done"),
+      title: "Newer done",
+      createdAt: "2026-06-01T08:00:00.000Z",
+      runtime: null,
+      latestRun: {
+        runId: "run-newer" as never,
+        status: "completed",
+        requestedAt: "2026-06-01T08:00:00.000Z",
+        startedAt: "2026-06-01T08:00:00.000Z",
+        completedAt: "2026-06-01T11:30:00.000Z",
+        assistantMessageId: null,
+      },
+    });
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      sidebarWorkingShelfEnabled: true,
+      sidebarInboxSortOrder: "recent",
+    });
+    vi.mocked(useProjects).mockReturnValue([activeProject]);
+    vi.mocked(useQuietThreadShells).mockReturnValue([olderDone, newerDone]);
+    vi.mocked(useThreadRouteTarget).mockReturnValue(null);
+    vi.mocked(useHandleNewThread).mockReturnValue({
+      activeDraftThread: null,
+      activeThread: null,
+      defaultProjectRef: {
+        environmentId: activeProject.environmentId,
+        projectId: activeProject.id,
+      },
+      defaultProjectFallbackReady: true,
+      handleNewThread: vi.fn().mockResolvedValue(null),
+      routeDraftId: null,
+      routeThreadRef: null,
+    });
+    vi.mocked(useServerConfigs).mockReturnValue(
+      new Map([
+        [
+          activeProject.environmentId,
+          {
+            scratchWorkspaceRoot: null,
+            shellThreadFamilies: false,
+          } as unknown as EnvironmentServerConfig,
+        ],
+      ]),
+    );
+
+    await using screen = await render(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+
+    const renderedTitles = () =>
+      [...screen.container.querySelectorAll<HTMLElement>("[data-thread-item]")].map((row) =>
+        row.textContent?.includes("Older done") ? "Older done" : "Newer done",
+      );
+
+    await vi.waitFor(() => expect(renderedTitles()).toEqual(["Newer done", "Older done"]));
+
+    await userEvent.click(screen.getByRole("button", { name: "Sort inbox: Recently done" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Longest waiting/ }));
+
+    await vi.waitFor(() => {
+      expect(getClientSettings().sidebarInboxSortOrder).toBe("longest_waiting");
+      expect(renderedTitles()).toEqual(["Older done", "Newer done"]);
+    });
+  });
+});

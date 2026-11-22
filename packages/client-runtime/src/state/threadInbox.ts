@@ -1,4 +1,5 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
+import type { SidebarInboxSortOrder } from "@t3tools/contracts/settings";
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 import { toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
@@ -52,11 +53,37 @@ export function asLaunchingThread<T extends EnvironmentThreadShell>(thread: T): 
 type InboxThreadInput = Pick<
   EnvironmentThreadShell,
   "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun"
->;
+> &
+  Partial<
+    Pick<
+      EnvironmentThreadShell,
+      | "pendingUserInputAt"
+      | "hasActionableProposedPlan"
+      | "hasPendingApprovals"
+      | "hasPendingUserInput"
+      | "pendingSubagentRequest"
+      | "interactionMode"
+      | "runtime"
+    >
+  >;
+
+function isInboxEntryWorking(thread: InboxThreadInput): boolean {
+  if (thread.runtime == null) return false;
+  return isThreadWorking({
+    hasActionableProposedPlan: thread.hasActionableProposedPlan ?? false,
+    hasPendingApprovals: thread.hasPendingApprovals ?? false,
+    hasPendingUserInput: thread.hasPendingUserInput ?? false,
+    pendingSubagentRequest: thread.pendingSubagentRequest ?? null,
+    interactionMode: thread.interactionMode ?? "default",
+    latestRun: thread.latestRun,
+    runtime: thread.runtime,
+  });
+}
 
 export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
   threads: readonly T[],
   observedReturnAt?: (thread: T) => number | undefined,
+  sortOrder: SidebarInboxSortOrder = "recent",
 ): T[] {
   const timestamps = new Map(
     threads.map((thread) => [
@@ -66,10 +93,23 @@ export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
         toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
         toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
         toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
+        toSortableTimestamp(thread.pendingUserInputAt ?? undefined) ?? 0,
         observedReturnAt?.(thread) ?? 0,
       ),
     ]),
   );
+  if (sortOrder === "longest_waiting") {
+    return [...threads].sort((left, right) => {
+      const leftWorking = isInboxEntryWorking(left) ? 1 : 0;
+      const rightWorking = isInboxEntryWorking(right) ? 1 : 0;
+      return (
+        leftWorking - rightWorking ||
+        timestamps.get(left)! - timestamps.get(right)! ||
+        left.id.localeCompare(right.id) ||
+        left.environmentId.localeCompare(right.environmentId)
+      );
+    });
+  }
   return sortNewestFirst(threads, timestamps);
 }
 

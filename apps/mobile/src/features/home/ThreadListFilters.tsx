@@ -3,6 +3,7 @@ import { Pressable, ScrollView } from "react-native";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ListFilterMenu } from "../layout/workspace/ListFilterMenu";
 import type { EnvironmentId } from "@t3tools/contracts";
+import type { SidebarInboxSortOrder } from "@t3tools/contracts/settings";
 import type {
   HomeListFilterMenuEnvironment,
   HomeListFilterMenuProject,
@@ -13,8 +14,11 @@ export function ThreadListFilters(props: {
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
+  readonly inboxSortOrder: SidebarInboxSortOrder;
+  readonly workingShelfEnabled: boolean;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
+  readonly onInboxSortOrderChange: (sortOrder: SidebarInboxSortOrder) => void;
   /** List padding the scroller bleeds through so pills start where row content does. */
   readonly gutter: number;
 }) {
@@ -25,6 +29,9 @@ export function ThreadListFilters(props: {
   const selectedProject = props.projects.find(
     (project) => project.key === props.selectedProjectKey,
   );
+  const defaultSortLabel = props.workingShelfEnabled ? gt("Recently done") : gt("Manual order");
+  const sortLabel =
+    props.inboxSortOrder === "longest_waiting" ? gt("Longest waiting") : defaultSortLabel;
   return (
     <ScrollView
       horizontal
@@ -32,6 +39,28 @@ export function ThreadListFilters(props: {
       style={{ marginHorizontal: -props.gutter, overflow: "visible" }}
       contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 2, paddingBottom: 10, gap: 8 }}
     >
+      <ListFilterMenu
+        label={sortLabel}
+        accessibilityLabel={gt("Sort active threads")}
+        active={props.inboxSortOrder !== "recent"}
+        actions={[
+          {
+            id: "recent",
+            title: defaultSortLabel,
+            state: props.inboxSortOrder === "recent" ? "on" : "off",
+          },
+          {
+            id: "longest_waiting",
+            title: gt("Longest waiting"),
+            state: props.inboxSortOrder === "longest_waiting" ? "on" : "off",
+          },
+        ]}
+        onSelect={(id) => {
+          if (id === "recent" || id === "longest_waiting") {
+            props.onInboxSortOrderChange(id);
+          }
+        }}
+      />
       <ListFilterMenu
         label={selectedEnvironment?.label ?? gt("All environments")}
         accessibilityLabel={gt("Filter threads by environment")}
@@ -87,7 +116,9 @@ export function ThreadListFilters(props: {
           }
         }}
       />
-      {props.selectedEnvironmentId !== null || props.selectedProjectKey !== null ? (
+      {props.selectedEnvironmentId !== null ||
+      props.selectedProjectKey !== null ||
+      props.inboxSortOrder !== "recent" ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={gt("Reset thread filters")}
@@ -95,6 +126,7 @@ export function ThreadListFilters(props: {
           onPress={() => {
             props.onEnvironmentChange(null);
             props.onProjectChange(null);
+            props.onInboxSortOrderChange("recent");
           }}
         >
           <SymbolView name="xmark.circle.fill" size={18} tintColorClassName="accent-icon-muted" />

@@ -393,10 +393,13 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozedShelfExpanded,
     workingShelfEnabled,
     workingShelfExpanded,
+    inboxSortOrder,
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
+    setInboxSortOrder,
   } = useThreadListV2ShelfPreferences();
+  const activeTimeOrdered = workingShelfEnabled || inboxSortOrder === "longest_waiting";
   const now = useThreadListNow(props.threads);
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
   const {
@@ -436,6 +439,7 @@ export function HomeScreen(props: HomeScreenProps) {
     shelfPreferencesLoaded,
     workingShelfEnabled,
     workingShelfExpanded,
+    inboxSortOrder,
     snoozedShelfExpanded,
     settledShelfExpanded,
     selectedThreadKey,
@@ -580,7 +584,7 @@ export function HomeScreen(props: HomeScreenProps) {
         reorderSupported={
           item.item.pinned
             ? pinReorderEnvironmentIds.has(thread.environmentId)
-            : !workingShelfEnabled && activeReorderEnvironmentIds.has(thread.environmentId)
+            : !activeTimeOrdered && activeReorderEnvironmentIds.has(thread.environmentId)
         }
         canMoveUp={item.canMoveUp}
         canMoveDown={item.canMoveDown}
@@ -611,6 +615,7 @@ export function HomeScreen(props: HomeScreenProps) {
     selectedThreadKey,
     threadSearchMatchByKey,
     workingShelfEnabled,
+    inboxSortOrder,
   };
 
   const hasAnyThreads =
@@ -700,8 +705,11 @@ export function HomeScreen(props: HomeScreenProps) {
           }))}
           selectedEnvironmentId={props.selectedEnvironmentId}
           selectedProjectKey={props.selectedProjectKey}
+          inboxSortOrder={inboxSortOrder}
+          workingShelfEnabled={workingShelfEnabled}
           onEnvironmentChange={props.onEnvironmentChange}
           onProjectChange={props.onProjectChange}
+          onInboxSortOrderChange={setInboxSortOrder}
         />
       ) : null}
     </>
