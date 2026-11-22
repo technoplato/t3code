@@ -129,6 +129,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -272,6 +273,7 @@ import {
 } from "./pending-thread-feed";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
+import { createThreadMessageStepper, type ThreadMessageStepper } from "./thread-message-step";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
@@ -399,6 +401,8 @@ export interface ThreadFeedProps {
   /** A message to scroll to once it is in the feed; see `onJumpedToMessage`. */
   readonly jumpToMessageId?: MessageId | null;
   readonly onJumpedToMessage?: () => void;
+  /** Receives the stepper that moves the feed from one message to the next. */
+  readonly messageStepRef?: RefObject<ThreadMessageStepper | null>;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
   readonly sendingWithKeyboard?: boolean;
@@ -3345,6 +3349,17 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // Without the native contentInset, a list-header spacer clears the bar the column lays content under.
   const topContentInset = usesNativeAutomaticInsets ? 0 : columnTopInset;
   const anchorTopInset = usesNativeAutomaticInsets ? barInset : topContentInset;
+  useImperativeHandle(
+    props.messageStepRef,
+    () =>
+      createThreadMessageStepper(() => ({
+        list: listRef.current,
+        anchorTopInset,
+        listContentInsetTop: usesNativeAutomaticInsets ? anchorTopInset : 0,
+        animated: !reduceMotion,
+      })),
+    [listRef, anchorTopInset, usesNativeAutomaticInsets, reduceMotion],
+  );
 
   const theme = useUniwindTheme();
   const iconSubtleColor = theme["--color-icon-subtle"];

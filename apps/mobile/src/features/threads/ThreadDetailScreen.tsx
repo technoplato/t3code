@@ -160,6 +160,12 @@ import {
   subscribeThreadMessageJump,
 } from "./threadMessageJump";
 import { readThreadFeedView } from "./thread-feed-view";
+import type {
+  ThreadMessageStepDirection,
+  ThreadMessageStepSender,
+  ThreadMessageStepper,
+} from "./thread-message-step";
+import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { recordClientViewGesture, viewThread } from "../../connection/client-view";
 import {
   clearThreadComposerError,
@@ -352,6 +358,8 @@ function ColumnWidth(props: { readonly width: number | null; readonly children: 
     </WorkspaceSettledContentWidthContext>
   );
 }
+const MESSAGE_STEP_KEYBOARD_COMMANDS = ["previousMessage", "nextMessage"] as const;
+const NO_KEYBOARD_COMMANDS = [] as const;
 const USAGE_LIMITS_PANEL_GAP = 12;
 const FEED_END_GAP = 12;
 const USAGE_LIMITS_PANEL_MIN_HEIGHT = 44;
@@ -540,6 +548,7 @@ function ThreadDetailBody(
     return () => cancelAnimationFrame(frame);
   }, [editingRunId, composerEditorRef]);
   const listRef = useRef<LegendListRef>(null);
+  const messageStepRef = useRef<ThreadMessageStepper | null>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   // Aborted when this thread's body unmounts, so async work started for it
   // stops touching a list or composer that now shows another thread.
@@ -1484,6 +1493,18 @@ function ThreadDetailBody(
   };
 
   const showScrollToEndButton = !props.draftMode && contentPresentationKind === "ready" && !isAtEnd;
+  const handleStepMessage = (
+    direction: ThreadMessageStepDirection,
+    sender: ThreadMessageStepSender = "any",
+  ) => {
+    const result = messageStepRef.current?.step(direction, sender) ?? "none";
+    if (result === "end") handleScrollToEnd();
+    if (result === "row") void Haptics.selectionAsync();
+  };
+  useHardwareKeyboardCommand(
+    props.draftMode ? NO_KEYBOARD_COMMANDS : MESSAGE_STEP_KEYBOARD_COMMANDS,
+    (command) => handleStepMessage(command === "previousMessage" ? "previous" : "next"),
+  );
   const { themeAppearance } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
 
@@ -1592,6 +1613,7 @@ function ThreadDetailBody(
                   anchorMessageId={anchorMessageId}
                   jumpToMessageId={jumpMessageLoaded ? jumpMessageId : null}
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
+                  messageStepRef={messageStepRef}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
                   sendingWithKeyboard={sendingWithKeyboard}
@@ -1710,6 +1732,7 @@ function ThreadDetailBody(
                     }
                     showScrollToEnd={showScrollToEndButton}
                     onScrollToEnd={handleScrollToEnd}
+                    onStepMessage={handleStepMessage}
                     agents={agentsSegment}
                     onOpenAgents={() => {
                       Keyboard.dismiss();

@@ -20,10 +20,13 @@ import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ControlPill } from "../../components/ui/ControlPill";
+import { Menu } from "../../components/ui/Menu";
+import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { BrowserPreviewButton } from "../browser/browser-preview-button";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingStatusAction, FloatingWorkingStatus } from "./floating-working-status";
+import type { ThreadMessageStepDirection, ThreadMessageStepSender } from "./thread-message-step";
 import { ShimmeringWorkContent } from "./thread-work-log";
 
 const CONTROL_HEIGHT = 38.5;
@@ -38,7 +41,9 @@ const CONTROL_TIMING = {
   reduceMotion: ReduceMotion.System,
 } as const;
 const CONTROL_ROW_GAP = 14;
-const CONTROL_SEPARATION = (CONTROL_ROW_GAP + CONTROL_HEIGHT) / 2;
+const MESSAGE_STEP_BUTTON_WIDTH = 40;
+// The pair of step buttons and the gap that sets it apart from the scroll button.
+const MESSAGE_STEPS_WIDTH = MESSAGE_STEP_BUTTON_WIDTH * 2 + 16;
 const LABEL_ENTERING = FadeIn.duration(160).delay(80).reduceMotion(ReduceMotion.System);
 const LABEL_EXITING = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
@@ -67,6 +72,11 @@ export function FloatingWorkingControl(props: {
   readonly browserPreview: { readonly count: number; readonly onPress: () => void } | null;
   readonly showScrollToEnd: boolean;
   readonly onScrollToEnd: () => void;
+  /** Steps the feed between messages; its buttons show with the scroll button. */
+  readonly onStepMessage?: (
+    direction: ThreadMessageStepDirection,
+    sender: ThreadMessageStepSender,
+  ) => void;
   readonly agents: SubagentPillSegment | null;
   readonly onOpenAgents: () => void;
   readonly queuedCount: number;
@@ -95,8 +105,11 @@ export function FloatingWorkingControl(props: {
   const [previewWidth, setPreviewWidth] = useState(0);
   const agents = props.agents;
   const hasAgents = agents !== null;
-  // Only reserve the scroll button's slot while it is visible.
-  const reservedWidth = props.showScrollToEnd ? CONTROL_HEIGHT + 32 : 16;
+  const { onStepMessage } = props;
+  const stepsWidth = onStepMessage ? MESSAGE_STEPS_WIDTH : 0;
+  // Only reserve the scroll and step buttons' slot while they are visible.
+  const reservedWidth = props.showScrollToEnd ? CONTROL_HEIGHT + 32 + stepsWidth : 16;
+  const controlSeparation = (CONTROL_ROW_GAP + CONTROL_HEIGHT + stepsWidth) / 2;
   const availableLabelWidth = Math.max(
     0,
     Math.min(overlayWidth, windowWidth) -
@@ -122,7 +135,7 @@ export function FloatingWorkingControl(props: {
     transform: [{ translateY: -(lift?.value ?? 0) }],
   }));
   const arrowTransformStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -CONTROL_SEPARATION * (1 - separationProgress.value) }],
+    transform: [{ translateX: -controlSeparation * (1 - separationProgress.value) }],
   }));
   const arrowContentStyle = useAnimatedStyle(() => ({
     opacity: separationProgress.value,
@@ -150,7 +163,7 @@ export function FloatingWorkingControl(props: {
     }
   }, [capsuleWidth, hasStatus]);
   const capsuleStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: CONTROL_SEPARATION * (1 - separationProgress.value) }],
+    transform: [{ translateX: controlSeparation * (1 - separationProgress.value) }],
   }));
   const capsuleSizerStyle = useAnimatedStyle(() => ({
     width: capsuleWidth.value ?? 0,
@@ -324,6 +337,26 @@ export function FloatingWorkingControl(props: {
             {capsuleContent}
           </AnimatedGlassView>
 
+          {onStepMessage ? (
+            <AnimatedGlassView
+              colorScheme={props.colorScheme}
+              glassEffectStyle={{
+                style: props.showScrollToEnd ? "regular" : "none",
+                animate: true,
+              }}
+              isInteractive
+              pointerEvents={props.showScrollToEnd ? "auto" : "none"}
+              accessibilityElementsHidden={!props.showScrollToEnd}
+              importantForAccessibility={props.showScrollToEnd ? "auto" : "no-hide-descendants"}
+              className="h-11 overflow-hidden rounded-full"
+              style={arrowTransformStyle}
+            >
+              <Animated.View style={arrowContentStyle}>
+                <MessageStepButtons disabled={!props.showScrollToEnd} onStep={onStepMessage} />
+              </Animated.View>
+            </AnimatedGlassView>
+          ) : null}
+
           <AnimatedGlassView
             colorScheme={props.colorScheme}
             glassEffectStyle={{ style: props.showScrollToEnd ? "regular" : "none", animate: true }}
@@ -349,6 +382,18 @@ export function FloatingWorkingControl(props: {
             {capsuleContent}
           </Animated.View>
 
+          {onStepMessage ? (
+            <Animated.View
+              pointerEvents={props.showScrollToEnd ? "auto" : "none"}
+              accessibilityElementsHidden={!props.showScrollToEnd}
+              importantForAccessibility={props.showScrollToEnd ? "auto" : "no-hide-descendants"}
+              className="h-11 overflow-hidden rounded-full border border-border bg-glass-fallback shadow-md shadow-black/10"
+              style={[arrowTransformStyle, arrowContentStyle]}
+            >
+              <MessageStepButtons disabled={!props.showScrollToEnd} onStep={onStepMessage} />
+            </Animated.View>
+          ) : null}
+
           <Animated.View
             pointerEvents={props.showScrollToEnd ? "auto" : "none"}
             accessibilityElementsHidden={!props.showScrollToEnd}
@@ -366,22 +411,45 @@ export function FloatingWorkingControl(props: {
           </Animated.View>
         </View>
       ) : NATIVE_LIQUID_GLASS_SUPPORTED ? (
-        <UniwindGlassView
-          colorScheme={props.colorScheme}
-          glassEffectStyle="regular"
-          isInteractive
-          className="h-11 w-11 items-center justify-center overflow-hidden rounded-full"
+        <UniwindGlassContainer
+          spacing={GLASS_MERGE_SPACING}
+          pointerEvents="box-none"
+          className="flex-row items-center gap-4"
         >
-          <ScrollToEndButton onPress={props.onScrollToEnd} />
-        </UniwindGlassView>
+          {onStepMessage ? (
+            <UniwindGlassView
+              colorScheme={props.colorScheme}
+              glassEffectStyle="regular"
+              isInteractive
+              className="h-11 overflow-hidden rounded-full"
+            >
+              <MessageStepButtons onStep={onStepMessage} />
+            </UniwindGlassView>
+          ) : null}
+          <UniwindGlassView
+            colorScheme={props.colorScheme}
+            glassEffectStyle="regular"
+            isInteractive
+            className="h-11 w-11 items-center justify-center overflow-hidden rounded-full"
+          >
+            <ScrollToEndButton onPress={props.onScrollToEnd} />
+          </UniwindGlassView>
+        </UniwindGlassContainer>
       ) : (
-        <ControlPill
-          accessibilityLabel={gt("Scroll to end")}
-          activateOnPressIn
-          className="h-11 w-11 border border-border bg-glass-fallback shadow-md shadow-black/10"
-          icon={{ ios: "chevron.down", android: "keyboard_arrow_down" }}
-          onPress={props.onScrollToEnd}
-        />
+        <View pointerEvents="box-none" className="flex-row items-center gap-4">
+          {onStepMessage ? (
+            <View className="h-11 overflow-hidden rounded-full border border-border bg-glass-fallback shadow-md shadow-black/10">
+              <MessageStepButtons onStep={onStepMessage} />
+            </View>
+          ) : null}
+          <ControlPill
+            accessibilityLabel={gt("Scroll to end")}
+            activateOnPressIn
+            className="h-11 w-11 border border-border bg-glass-fallback shadow-md shadow-black/10"
+            icon={{ ios: "chevron.down", android: "keyboard_arrow_down" }}
+            onPress={props.onScrollToEnd}
+          />
+        </View>
       )}
     </Animated.View>
   );
@@ -562,5 +630,62 @@ function ScrollToEndButton(props: { readonly disabled?: boolean; readonly onPres
       icon={{ ios: "chevron.down", android: "keyboard_arrow_down" }}
       onPress={props.onPress}
     />
+  );
+}
+
+/** Previous and next message; touch and hold either to step only your messages or only responses. */
+function MessageStepButtons(props: {
+  readonly disabled?: boolean;
+  readonly onStep: (direction: ThreadMessageStepDirection, sender: ThreadMessageStepSender) => void;
+}) {
+  return (
+    <View className="h-11 flex-row items-center">
+      <MessageStepButton direction="previous" disabled={props.disabled} onStep={props.onStep} />
+      <View className="h-4 w-px bg-border" />
+      <MessageStepButton direction="next" disabled={props.disabled} onStep={props.onStep} />
+    </View>
+  );
+}
+
+function MessageStepButton(props: {
+  readonly direction: ThreadMessageStepDirection;
+  readonly disabled?: boolean;
+  readonly onStep: (direction: ThreadMessageStepDirection, sender: ThreadMessageStepSender) => void;
+}) {
+  const gt = useGT();
+  const { smallIconSize } = useAndroidControlSizing();
+  const { direction, onStep } = props;
+  const previous = direction === "previous";
+  return (
+    <Menu
+      shouldOpenOnLongPress
+      actions={[
+        {
+          id: "user",
+          title: previous ? gt("Previous message from you") : gt("Next message from you"),
+        },
+        { id: "assistant", title: previous ? gt("Previous response") : gt("Next response") },
+      ]}
+      onPressAction={({ nativeEvent }) =>
+        onStep(direction, nativeEvent.event === "user" ? "user" : "assistant")
+      }
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={previous ? gt("Previous message") : gt("Next message")}
+        accessibilityHint={gt("Touch and hold to choose your messages or responses")}
+        disabled={props.disabled}
+        onPress={() => onStep(direction, "any")}
+        style={{ width: MESSAGE_STEP_BUTTON_WIDTH }}
+        className="h-11 items-center justify-center active:opacity-70"
+      >
+        <SymbolView
+          name={previous ? "chevron.up" : "chevron.down"}
+          size={smallIconSize}
+          tintColorClassName="accent-icon"
+          type="monochrome"
+        />
+      </Pressable>
+    </Menu>
   );
 }
