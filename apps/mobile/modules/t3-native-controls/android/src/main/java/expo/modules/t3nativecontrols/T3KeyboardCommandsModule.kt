@@ -43,6 +43,10 @@ class T3KeyboardCommandsView(
         "copyThreadReference"
       event.keyCode == KeyEvent.KEYCODE_H && event.isShiftPressed && !event.isAltPressed ->
         "cycleHost"
+      event.keyCode == KeyEvent.KEYCODE_DPAD_UP && !event.isShiftPressed && !event.isAltPressed ->
+        "previousMessage"
+      event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !event.isShiftPressed && !event.isAltPressed ->
+        "nextMessage"
       else -> null
     }
   }
