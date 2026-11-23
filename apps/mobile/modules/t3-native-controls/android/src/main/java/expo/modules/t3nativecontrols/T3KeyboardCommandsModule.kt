@@ -35,19 +35,22 @@ class T3KeyboardCommandsView(
   }
 
   private fun commandFor(event: KeyEvent): String? {
-    if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0 || !event.isCtrlPressed) {
-      return null
-    }
-    return when {
-      event.keyCode == KeyEvent.KEYCODE_C && event.isShiftPressed && !event.isAltPressed ->
-        "copyThreadReference"
-      event.keyCode == KeyEvent.KEYCODE_H && event.isShiftPressed && !event.isAltPressed ->
-        "cycleHost"
-      event.keyCode == KeyEvent.KEYCODE_DPAD_UP && !event.isShiftPressed && !event.isAltPressed ->
-        "previousMessage"
-      event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !event.isShiftPressed && !event.isAltPressed ->
-        "nextMessage"
-      else -> null
-    }
+    val pressed = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+    if (!pressed || !event.isCtrlPressed || event.isAltPressed) return null
+    val commands = if (event.isShiftPressed) CTRL_SHIFT_COMMANDS else CTRL_COMMANDS
+    return commands[event.keyCode]
+  }
+
+  private companion object {
+    val CTRL_SHIFT_COMMANDS =
+      mapOf(
+        KeyEvent.KEYCODE_C to "copyThreadReference",
+        KeyEvent.KEYCODE_H to "cycleHost"
+      )
+    val CTRL_COMMANDS =
+      mapOf(
+        KeyEvent.KEYCODE_DPAD_UP to "previousMessage",
+        KeyEvent.KEYCODE_DPAD_DOWN to "nextMessage"
+      )
   }
 }
