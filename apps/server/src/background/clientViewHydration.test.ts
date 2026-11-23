@@ -284,6 +284,7 @@ describe("hydrateActiveClientView", () => {
       }),
     );
 
+    assert.equal(snapshot.threadUri, "t3-thread://v2/environment-1/thread-1");
     assert.deepStrictEqual(
       snapshot.visibleItems.map((item) => [item.id, item.kind]),
       [

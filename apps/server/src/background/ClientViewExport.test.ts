@@ -262,6 +262,7 @@ describe("ClientViewExport", () => {
           windowId: "window-1",
           environmentId: REMOTE,
           threadId: THREAD,
+          threadUri: `t3-thread://v2/${REMOTE}/${THREAD}`,
         });
       }),
     ),

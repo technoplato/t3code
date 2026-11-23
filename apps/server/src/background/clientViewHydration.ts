@@ -6,6 +6,7 @@ import {
   type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import { threadLinkHref } from "@t3tools/shared/threadLinks";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 
@@ -53,6 +54,8 @@ const snapshotWindowFields = {
   windowId: Schema.String,
   environmentId: Schema.String,
   threadId: Schema.String,
+  /** The thread's `t3-thread://` link, for a reader that opens or cites the thread. */
+  threadUri: Schema.String,
 } as const;
 
 const ActiveClientViewSnapshot = Schema.Struct({
@@ -361,6 +364,7 @@ export function hydrateActiveClientView(input: {
     lastGestureAtMs: view.lastGestureAtMs,
     environmentId: view.environmentId,
     threadId: view.threadId,
+    threadUri: threadLinkHref(view),
     threadTitle: shell.title,
     projectTitle: thread.project?.title ?? null,
     workspaceRoot: thread.project?.workspaceRoot ?? null,

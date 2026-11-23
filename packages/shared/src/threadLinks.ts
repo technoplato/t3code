@@ -124,7 +124,8 @@ export function guessThreadLinkRef(
   return null;
 }
 
-function threadLinkHref(link: ThreadLink): string {
+/** The `t3-thread://` address of a thread, as T3 Code's own links carry it. */
+export function threadLinkHref(link: ThreadLink): string {
   return link.environmentId === null
     ? `${V1_PREFIX}${link.threadId}`
     : `${V2_PREFIX}${link.environmentId}/${link.threadId}`;

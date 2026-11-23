@@ -10,6 +10,7 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { threadLinkHref } from "@t3tools/shared/threadLinks";
 import * as NodeOS from "node:os";
 
 import * as Clock from "effect/Clock";
@@ -277,6 +278,7 @@ const make = Effect.gen(function* () {
         windowId: view.windowId,
         environmentId: view.environmentId,
         threadId: view.threadId,
+        threadUri: threadLinkHref(view),
       } as const;
     }
     const thread = yield* source.readThread(
