@@ -26,8 +26,13 @@ const UPSTREAM_APPLE_TEAM_ID = "ARK85ZXQ4Z";
 
 // Compiled into the native project. Without a relay, Observe's native side could dispatch to
 // Expo's own ingest before observe.ts turns it off; `.invalid` never resolves (RFC 6761).
-const observeEndpointUrl = repoEnv.T3CODE_RELAY_URL?.trim()
-  ? new URL("/v1/mobile/observe", repoEnv.T3CODE_RELAY_URL.trim()).toString()
+// A fork build must not reach upstream's relay (crash reports) or EAS project (OTA bundles); the
+// repo .env names both. A fork names its own relay with T3CODE_FORK_RELAY_URL.
+const isForkBuild = isIosPersonalTeamBuild || Boolean(ownTeamId || ownTeamBundleIdentifier);
+const relayUrl =
+  (isForkBuild ? repoEnv.T3CODE_FORK_RELAY_URL : repoEnv.T3CODE_RELAY_URL)?.trim() || null;
+const observeEndpointUrl = relayUrl
+  ? new URL("/v1/mobile/observe", relayUrl).toString()
   : "https://observe.invalid";
 
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
@@ -263,7 +268,7 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
+    enabled: !isForkBuild && repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
     url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
@@ -490,7 +495,7 @@ const config: ExpoConfig = {
     appVariant: APP_VARIANT,
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
     relay: {
-      url: repoEnv.T3CODE_RELAY_URL ?? null,
+      url: relayUrl,
     },
     clerk: {
       publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,

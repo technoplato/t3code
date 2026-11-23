@@ -15,6 +15,10 @@ vi.mock("../../scripts/lib/public-config.ts", () => ({
     ...(process.env.T3CODE_IOS_BUNDLE_ID
       ? { T3CODE_IOS_BUNDLE_ID: process.env.T3CODE_IOS_BUNDLE_ID }
       : {}),
+    ...(process.env.T3CODE_RELAY_URL ? { T3CODE_RELAY_URL: process.env.T3CODE_RELAY_URL } : {}),
+    ...(process.env.T3CODE_FORK_RELAY_URL
+      ? { T3CODE_FORK_RELAY_URL: process.env.T3CODE_FORK_RELAY_URL }
+      : {}),
   }),
 }));
 
@@ -68,6 +72,28 @@ it("builds the whole app under another paid team and bundle identifier", async (
   expect(plugins).not.toContain("withoutIosPersonalTeamCapabilities");
   // Android keeps the variant's package.
   expect(config.android?.package).toBe("com.t3tools.t3code");
+});
+
+it("keeps a fork build away from upstream's relay, crash reports and updates", async () => {
+  vi.stubEnv("T3CODE_RELAY_URL", "https://relay.upstream.example");
+  const upstream = await loadConfig("production");
+  expect(upstream.updates?.enabled).toBe(true);
+  expect(upstream.extra?.relay?.url).toBe("https://relay.upstream.example");
+
+  vi.stubEnv("T3CODE_IOS_TEAM_ID", "ABCDE12345");
+  vi.stubEnv("T3CODE_IOS_BUNDLE_ID", "com.example.t3code");
+  const fork = await loadConfig("production");
+  expect(fork.updates?.enabled).toBe(false);
+  expect(fork.extra?.relay?.url).toBeNull();
+  expect(fork.extra?.eas?.observe?.endpointUrl).toBe("https://observe.invalid");
+
+  // A fork reaches a relay only when it names its own.
+  vi.stubEnv("T3CODE_FORK_RELAY_URL", "https://relay.fork.example");
+  const forkWithRelay = await loadConfig("production");
+  expect(forkWithRelay.extra?.relay?.url).toBe("https://relay.fork.example");
+  expect(forkWithRelay.extra?.eas?.observe?.endpointUrl).toBe(
+    "https://relay.fork.example/v1/mobile/observe",
+  );
 });
 
 it.each([
