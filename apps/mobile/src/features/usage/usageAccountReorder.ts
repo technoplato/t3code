@@ -48,11 +48,8 @@ function dropIndex(from: number, translation: number, slot: Pick<Slot, "count" |
 }
 
 const liftHaptic = () => void Haptics.selectionAsync();
-const SIDEWAYS: { activeOffsetX: [number, number]; failOffsetY: [number, number] } = {
-  activeOffsetX: [-10, 10],
-  failOffsetY: [-12, 12],
-};
-const ON_TOUCH = { minDistance: 0 };
+const SIDEWAYS_ACTIVE_OFFSET_X: [number, number] = [-10, 10];
+const SIDEWAYS_FAIL_OFFSET_Y: [number, number] = [-12, 12];
 
 /**
  * The pan that lifts a slot. A horizontal slot waits for sideways travel so taps and vertical
@@ -68,7 +65,10 @@ export function useSlotGesture(
   const engaged = useSharedValue(false);
   return usePanGesture({
     enabled: count > 1 && pitch > 0,
-    ...(axis === "x" ? SIDEWAYS : ON_TOUCH),
+    // Named one by one: the worklets Babel plugin rejects a spread in a gesture's options.
+    activeOffsetX: axis === "x" ? SIDEWAYS_ACTIVE_OFFSET_X : undefined,
+    failOffsetY: axis === "x" ? SIDEWAYS_FAIL_OFFSET_Y : undefined,
+    minDistance: axis === "x" ? undefined : 0,
     onActivate: () => {
       // Another slot is still lifted or settling.
       if (active.value !== -1) return;
