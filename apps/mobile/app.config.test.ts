@@ -6,7 +6,16 @@ import assetLinks from "../web/public/.well-known/assetlinks.json";
 
 // Keep config parsing independent of local env files and build credentials.
 vi.mock("../../scripts/lib/public-config.ts", () => ({
-  loadRepoEnv: () => ({ APP_VARIANT: process.env.APP_VARIANT }),
+  // The config copies these back onto process.env, where an absent value would become "undefined".
+  loadRepoEnv: () => ({
+    APP_VARIANT: process.env.APP_VARIANT,
+    ...(process.env.T3CODE_IOS_TEAM_ID
+      ? { T3CODE_IOS_TEAM_ID: process.env.T3CODE_IOS_TEAM_ID }
+      : {}),
+    ...(process.env.T3CODE_IOS_BUNDLE_ID
+      ? { T3CODE_IOS_BUNDLE_ID: process.env.T3CODE_IOS_BUNDLE_ID }
+      : {}),
+  }),
 }));
 
 afterEach(() => {
@@ -44,4 +53,30 @@ it.each([
     { scheme: "https", host, pathPrefix: "/threads/" },
   ]);
   expect(assetLinks.map((link) => link.target.package_name)).toContain(identifier);
+});
+
+it("builds the whole app under another paid team and bundle identifier", async () => {
+  vi.stubEnv("T3CODE_IOS_TEAM_ID", "ABCDE12345");
+  vi.stubEnv("T3CODE_IOS_BUNDLE_ID", "com.example.t3code");
+  const config = await loadConfig("production");
+  expect(config.ios?.appleTeamId).toBe("ABCDE12345");
+  expect(config.ios?.bundleIdentifier).toBe("com.example.t3code");
+  // A paid team signs what a Personal Team cannot: the widget and share extensions stay in.
+  const plugins = JSON.stringify(config.plugins);
+  expect(plugins).toContain("com.example.t3code.widgets");
+  expect(plugins).toContain("group.com.example.t3code");
+  expect(plugins).not.toContain("withoutIosPersonalTeamCapabilities");
+  // Android keeps the variant's package.
+  expect(config.android?.package).toBe("com.t3tools.t3code");
+});
+
+it.each([
+  ["ABCDE12345", undefined],
+  [undefined, "com.example.t3code"],
+  ["abc", "com.example.t3code"],
+  ["ABCDE12345", "t3code"],
+])("rejects T3CODE_IOS_TEAM_ID=%j with T3CODE_IOS_BUNDLE_ID=%j", async (team, bundle) => {
+  vi.stubEnv("T3CODE_IOS_TEAM_ID", team);
+  vi.stubEnv("T3CODE_IOS_BUNDLE_ID", bundle);
+  await expect(loadConfig("production")).rejects.toThrow("T3CODE_IOS_TEAM_ID");
 });

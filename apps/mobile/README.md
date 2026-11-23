@@ -107,6 +107,18 @@ T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code \
 vp run ios:release
 ```
 
+With your own paid Apple Developer team, build the whole app, widget and share extensions and push
+entitlement included, under an identifier you own. Set both values; Xcode signs with that team:
+
+```bash
+T3CODE_IOS_TEAM_ID=ABCDE12345 \
+T3CODE_IOS_BUNDLE_ID=com.example.t3code \
+vp run ios:release
+```
+
+Passkeys and links to `app.t3.codes` stay tied to T3's own app identifiers, and push arrives only
+from a relay that holds your app's push key.
+
 Build and run the local iOS preview app:
 
 ```bash

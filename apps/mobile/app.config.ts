@@ -18,6 +18,11 @@ const runtimeVersionPolicy =
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+// A fork's own paid Apple team and app identifier. Unlike a Personal Team build this keeps every
+// capability: the team can sign App Groups, the widget and share extensions and push.
+const ownTeamId = repoEnv.T3CODE_IOS_TEAM_ID?.trim();
+const ownTeamBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
+const UPSTREAM_APPLE_TEAM_ID = "ARK85ZXQ4Z";
 
 // Compiled into the native project. Without a relay, Observe's native side could dispatch to
 // Expo's own ingest before observe.ts turns it off; `.invalid` never resolves (RFC 6761).
@@ -35,6 +40,18 @@ if (
 ) {
   throw new Error(
     "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
+  );
+}
+
+if (
+  (ownTeamId || ownTeamBundleIdentifier) &&
+  (!ownTeamId ||
+    !/^[A-Z0-9]{10}$/.test(ownTeamId) ||
+    !ownTeamBundleIdentifier ||
+    !IOS_BUNDLE_IDENTIFIER_PATTERN.test(ownTeamBundleIdentifier))
+) {
+  throw new Error(
+    "T3CODE_IOS_TEAM_ID (a 10-character Apple team ID) and T3CODE_IOS_BUNDLE_ID (a reverse-DNS identifier such as com.example.t3code) must be set together.",
   );
 }
 
@@ -122,7 +139,7 @@ const variant = VARIANT_CONFIG[APP_VARIANT];
 const HOSTED_APP_HOST = "app.t3.codes";
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
-  : variant.iosBundleIdentifier;
+  : (ownTeamBundleIdentifier ?? variant.iosBundleIdentifier);
 
 const dmSansFonts = {
   regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -257,7 +274,7 @@ const config: ExpoConfig = {
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
     // Avoid Personal Team fallback: it cannot sign App Groups, Apple sign-in or push entitlements.
-    appleTeamId: "ARK85ZXQ4Z",
+    appleTeamId: ownTeamId ?? UPSTREAM_APPLE_TEAM_ID,
     associatedDomains: [
       `applinks:${variant.relyingParty}`,
       `webcredentials:${variant.relyingParty}`,
