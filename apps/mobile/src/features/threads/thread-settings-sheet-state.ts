@@ -2,7 +2,8 @@ import {
   mostRemainingChoice,
   providerQuotaForModel,
   sortByMostRemaining,
-  type ProviderQuota,
+  type ProviderQuotaLine,
+  type QuotaProvider,
 } from "@t3tools/client-runtime/provider-quota-remaining";
 import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
 import type { ModelSelection, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
@@ -110,6 +111,8 @@ export function providerSectionIsCollapsed(input: {
   return input.defaultExpanded ? input.hasExpansionOverride : !input.hasExpansionOverride;
 }
 
+const UNKNOWN_QUOTA: ProviderQuotaLine = { _tag: "Unknown", reason: "notReported", message: null };
+
 /**
  * Orders the logins that offer the selected model (the same driver's instances
  * listing its id) by quota left; every other provider keeps its place after them.
@@ -117,17 +120,17 @@ export function providerSectionIsCollapsed(input: {
 export function mostRemainingOrder(input: {
   readonly groups: ReadonlyArray<ProviderGroup>;
   readonly selected: ModelOption | null;
-  readonly providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "driver" | "usageLimits">>;
+  readonly providers: ReadonlyArray<Pick<ServerProvider, "instanceId"> & QuotaProvider>;
   readonly now: number;
 }): {
   readonly groups: ReadonlyArray<ProviderGroup>;
-  readonly quotas: ReadonlyMap<string, ProviderQuota>;
+  readonly quotas: ReadonlyMap<string, ProviderQuotaLine>;
   /** The login with more quota left than the selected one, if any. */
   readonly choice: ModelOption | null;
 } {
   const selected = input.selected;
   const logins = new Map<string, ModelOption>();
-  const quotas = new Map<string, ProviderQuota>();
+  const quotas = new Map<string, ProviderQuotaLine>();
   if (selected) {
     for (const group of input.groups) {
       const login = group.models.find(
@@ -149,8 +152,8 @@ export function mostRemainingOrder(input: {
       );
     }
   }
-  const quotaOf = (providerKey: string): ProviderQuota =>
-    quotas.get(providerKey) ?? { kind: "unknown" };
+  const quotaOf = (providerKey: string): ProviderQuotaLine =>
+    quotas.get(providerKey) ?? UNKNOWN_QUOTA;
   return {
     groups: [
       ...sortByMostRemaining(

@@ -161,3 +161,79 @@ export const UsageLimitsReport = Schema.Struct({
   notices: Schema.Array(Schema.String),
 });
 export type UsageLimitsReport = typeof UsageLimitsReport.Type;
+
+/** One metered allowance as last read: how much is spent, when it refills, when it was read. */
+export const ProviderQuotaWindow = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  kind: ServerProviderUsageWindow.fields.kind,
+  label: TrimmedNonEmptyString,
+  usedFraction: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+  resetsAt: Schema.NullOr(IsoDateTime),
+  measuredAt: IsoDateTime,
+});
+export type ProviderQuotaWindow = typeof ProviderQuotaWindow.Type;
+
+/**
+ * Allowances that meter only some of a login's models, such as Claude's Fable week or an
+ * Antigravity family's 5-hour and weekly windows. Every window binds every listed model.
+ */
+export const ProviderQuotaModelGroup = Schema.Struct({
+  models: Schema.NonEmptyArray(TrimmedNonEmptyString),
+  windows: Schema.NonEmptyArray(ProviderQuotaWindow),
+});
+export type ProviderQuotaModelGroup = typeof ProviderQuotaModelGroup.Type;
+
+export const ProviderQuotaUnavailableReason = Schema.Literals([
+  /** The provider has not reported limits, or does not report them at all. */
+  "notReported",
+  "unsupported",
+  "probeFailed",
+  /** Turns go to a custom endpoint, so this login's own reading is not their quota. */
+  "customEndpoint",
+]);
+export type ProviderQuotaUnavailableReason = typeof ProviderQuotaUnavailableReason.Type;
+
+/** What a login's quota reading is, one variant per shape providers report. */
+export const ProviderQuota = Schema.Union([
+  /**
+   * Plan allowances every model draws on (a 5-hour session and a week), plus allowances for one
+   * model tier and paid usage past the plan, which keeps the login running but is not plan quota.
+   */
+  Schema.TaggedStruct("Plan", {
+    shared: Schema.NonEmptyArray(ProviderQuotaWindow),
+    modelScoped: Schema.Array(ProviderQuotaModelGroup),
+    overage: Schema.NullOr(ProviderQuotaWindow),
+  }),
+  /** Every allowance meters a group of models and none meters all, as Antigravity's do. */
+  Schema.TaggedStruct("ModelGroups", {
+    groups: Schema.NonEmptyArray(ProviderQuotaModelGroup),
+  }),
+  /** Only a monthly credit cap meters the login; it is read as a share of the cap, not a balance. */
+  Schema.TaggedStruct("CreditCap", { cap: ProviderQuotaWindow }),
+  Schema.TaggedStruct("Unavailable", {
+    reason: ProviderQuotaUnavailableReason,
+    message: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+]);
+export type ProviderQuota = typeof ProviderQuota.Type;
+
+/** What a picker shows for a login, or for one of its models. */
+export const ProviderQuotaLine = Schema.Union([
+  Schema.TaggedStruct("Remaining", {
+    /** Whole percent left on the tightest window, 1 to 100. */
+    remainingPercent: Schema.Number.check(Schema.isBetween({ minimum: 1, maximum: 100 })),
+    window: ProviderQuotaWindow,
+    /** The reading is older than a few missed refreshes. */
+    stale: Schema.Boolean,
+  }),
+  /** A window is spent; `window` is the one that refills last. */
+  Schema.TaggedStruct("Exhausted", {
+    window: ProviderQuotaWindow,
+    stale: Schema.Boolean,
+  }),
+  Schema.TaggedStruct("Unknown", {
+    reason: ProviderQuotaUnavailableReason,
+    message: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+]);
+export type ProviderQuotaLine = typeof ProviderQuotaLine.Type;

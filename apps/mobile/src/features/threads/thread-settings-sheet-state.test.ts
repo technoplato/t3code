@@ -205,6 +205,8 @@ describe("thread settings sheet state", () => {
     const limits = (instance: string, sessionUsed: number, weeklyUsed: number) => ({
       instanceId: ProviderInstanceId.make(instance),
       driver: ProviderDriverKind.make("claudeAgent"),
+      auth: {},
+      models: [{ slug: "fable" }, { slug: "opus" }],
       usageLimits: {
         checkedAt: "2026-03-10T11:59:00.000Z",
         windows: [
