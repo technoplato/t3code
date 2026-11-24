@@ -23,12 +23,16 @@ const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const ownTeamId = repoEnv.T3CODE_IOS_TEAM_ID?.trim();
 const ownTeamBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
 const UPSTREAM_APPLE_TEAM_ID = "ARK85ZXQ4Z";
+// A fork's own Android package, so its app installs beside upstream's on the same phone.
+const ownAndroidPackage = repoEnv.T3CODE_ANDROID_PACKAGE?.trim();
+const ANDROID_PACKAGE_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/;
 
 // Compiled into the native project. Without a relay, Observe's native side could dispatch to
 // Expo's own ingest before observe.ts turns it off; `.invalid` never resolves (RFC 6761).
 // A fork build must not reach upstream's relay (crash reports) or EAS project (OTA bundles); the
 // repo .env names both. A fork names its own relay with T3CODE_FORK_RELAY_URL.
-const isForkBuild = isIosPersonalTeamBuild || Boolean(ownTeamId || ownTeamBundleIdentifier);
+const isForkBuild =
+  isIosPersonalTeamBuild || Boolean(ownTeamId || ownTeamBundleIdentifier || ownAndroidPackage);
 const relayUrl =
   (isForkBuild ? repoEnv.T3CODE_FORK_RELAY_URL : repoEnv.T3CODE_RELAY_URL)?.trim() || null;
 const observeEndpointUrl = relayUrl
@@ -58,6 +62,10 @@ if (
   throw new Error(
     "T3CODE_IOS_TEAM_ID (a 10-character Apple team ID) and T3CODE_IOS_BUNDLE_ID (a reverse-DNS identifier such as com.example.t3code) must be set together.",
   );
+}
+
+if (ownAndroidPackage && !ANDROID_PACKAGE_PATTERN.test(ownAndroidPackage)) {
+  throw new Error("T3CODE_ANDROID_PACKAGE must be a Java package name such as com.example.t3code.");
 }
 
 const DEVELOPMENT_ASSETS = {
@@ -142,6 +150,9 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 const variant = VARIANT_CONFIG[APP_VARIANT];
 // A fork's build wears the badged icon, so it is told apart from upstream's app on the same device.
 const FORK_IOS_ICON = fromRepoRoot("assets/custom/custom-ios-1024.png");
+const androidForeground = isForkBuild
+  ? "./assets/android-icon-foreground-custom.png"
+  : variant.assets.androidAdaptiveForeground;
 // Copied thread links open the app. app.t3.codes/.well-known lists every variant's identifiers.
 const HOSTED_APP_HOST = "app.t3.codes";
 const iosBundleIdentifier = isIosPersonalTeamBuild
@@ -321,8 +332,8 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    icon: variant.assets.appIcon,
-    package: variant.androidPackage,
+    icon: isForkBuild ? FORK_IOS_ICON : variant.assets.appIcon,
+    package: ownAndroidPackage ?? variant.androidPackage,
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
       : {}),
@@ -331,7 +342,7 @@ const config: ExpoConfig = {
       ...(variant.assets.androidAdaptiveBackgroundImage
         ? { backgroundImage: variant.assets.androidAdaptiveBackgroundImage }
         : {}),
-      foregroundImage: variant.assets.androidAdaptiveForeground,
+      foregroundImage: androidForeground,
       monochromeImage: variant.assets.androidMonochromeIcon,
     },
     // JS back dispatch needs RN's Android 16 shim and withAndroidPredictiveBackCompat on Android 13-15.
@@ -402,7 +413,7 @@ const config: ExpoConfig = {
       {
         androidIcons: {
           shortcut_icon: {
-            foregroundImage: variant.assets.androidAdaptiveForeground,
+            foregroundImage: androidForeground,
             backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
             ...(variant.assets.androidAdaptiveBackgroundImage
               ? { backgroundImage: variant.assets.androidAdaptiveBackgroundImage }
