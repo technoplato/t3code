@@ -71,6 +71,9 @@ export type IssueSavedView = typeof IssueSavedView.Type;
 const isIssueSavedView = Schema.is(IssueSavedView);
 
 /** How the thread settings sheet orders the provider logins that offer the selected model. */
+/** Agent thinking shows open until the person turns it off in Appearance. */
+export const EXPAND_THINKING_BY_DEFAULT = true;
+
 export const ThreadSettingsModelSort = Schema.Literals(["default", "mostRemaining"]);
 export type ThreadSettingsModelSort = typeof ThreadSettingsModelSort.Type;
 const isThreadSettingsModelSort = Schema.is(ThreadSettingsModelSort);

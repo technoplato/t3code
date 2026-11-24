@@ -1,5 +1,9 @@
 import { Button } from "../../components/ui/Button";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
+import {
+  resolveOpenedGroupReasoningRowIds,
+  resolveReasoningMaxHeight,
+} from "./thread-work-log-thinking";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import {
   WorkLogLabel,
@@ -41,6 +45,7 @@ import {
   StyleSheet,
   Text as RNText,
   useAnimatedValue,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
@@ -52,6 +57,7 @@ import {
   type ToolActivityIcon,
 } from "@t3tools/contracts";
 import type { WorkLogScrollHeight } from "@t3tools/contracts/settings";
+
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import * as DateTime from "effect/DateTime";
@@ -435,38 +441,20 @@ const WORK_ROW_GAP = 1;
 const WORK_LOG_BOTTOM_MARGIN = 3.5;
 const WORK_GROUP_MAX_HEIGHT_DEFAULT = 256;
 const WORK_GROUP_MAX_HEIGHT_TALL = 480;
-const REASONING_MAX_HEIGHT_DEFAULT = 384;
-const REASONING_MAX_HEIGHT_TALL = 560;
 const WORK_GROUP_EDGE_FADE_HEIGHT = 12;
 
 export const WORK_GROUP_TOGGLE_HEIGHT = THREAD_WORK_ROW_MIN_HEIGHT;
-
-export function resolveLeadingReasoningRowIds(
-  activities: ReadonlyArray<ThreadFeedActivity>,
-  groupExpandedByUser: boolean,
-): ReadonlySet<string> | undefined {
-  if (!groupExpandedByUser) return undefined;
-  let ids: Set<string> | undefined;
-  for (const row of activities) {
-    if (row.workEntry.itemType !== "reasoning") break;
-    if ((row.workEntry.detail?.trim() ?? "") !== "") {
-      ids ??= new Set();
-      ids.add(row.id);
-    }
-  }
-  return ids;
-}
 
 export function isWorkRowExpanded(
   row: ThreadFeedActivity,
   expandedRows: Readonly<Record<string, boolean>>,
   expandThinkingByDefault: boolean,
-  leadingReasoningRowIds?: ReadonlySet<string>,
+  openedGroupReasoningRowIds?: ReadonlySet<string>,
 ): boolean {
   const explicit = expandedRows[row.id];
   if (explicit !== undefined) return explicit;
   return (
-    (expandThinkingByDefault || leadingReasoningRowIds?.has(row.id) === true) &&
+    (expandThinkingByDefault || openedGroupReasoningRowIds?.has(row.id) === true) &&
     row.workEntry.itemType === "reasoning" &&
     (row.workEntry.detail?.trim() ?? "") !== ""
   );
@@ -475,11 +463,6 @@ export function isWorkRowExpanded(
 function resolveWorkGroupMaxHeight(scrollHeight: WorkLogScrollHeight): number | undefined {
   if (scrollHeight === "full") return undefined;
   return scrollHeight === "tall" ? WORK_GROUP_MAX_HEIGHT_TALL : WORK_GROUP_MAX_HEIGHT_DEFAULT;
-}
-
-function resolveReasoningMaxHeight(scrollHeight: WorkLogScrollHeight): number | undefined {
-  if (scrollHeight === "full") return undefined;
-  return scrollHeight === "tall" ? REASONING_MAX_HEIGHT_TALL : REASONING_MAX_HEIGHT_DEFAULT;
 }
 
 function workLogRowsHeight(
@@ -544,7 +527,8 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
   const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
   const workLogScrollHeight = props.workLogScrollHeight ?? "default";
   const workGroupMaxHeight = resolveWorkGroupMaxHeight(workLogScrollHeight);
-  const leadingReasoningRowIds = resolveLeadingReasoningRowIds(
+  const { height: windowHeight } = useWindowDimensions();
+  const openedGroupReasoningRowIds = resolveOpenedGroupReasoningRowIds(
     props.activities,
     props.groupExpandedByUser === true,
   );
@@ -558,9 +542,10 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         row,
         props.expandedRows,
         expandThinkingByDefault,
-        leadingReasoningRowIds,
+        openedGroupReasoningRowIds,
       )}
       environmentId={props.environmentId}
+      workLogScrollHeight={workLogScrollHeight}
       iconSubtleColor={props.iconSubtleColor}
       onCopyRow={props.onCopyRow}
       onToggleRow={props.onToggleRow}
@@ -600,7 +585,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         <ThreadReasoningGroup
           activities={props.activities}
           edgeFadeColor={props.edgeFadeColor}
-          maxHeight={resolveReasoningMaxHeight(workLogScrollHeight)}
+          maxHeight={resolveReasoningMaxHeight(workLogScrollHeight, windowHeight)}
           renderReasoning={props.renderReasoning}
         />
       </WorkLogBlock>
@@ -615,7 +600,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
           edgeFadeColor={props.edgeFadeColor}
           expandedRows={props.expandedRows}
           expandThinkingByDefault={expandThinkingByDefault}
-          leadingReasoningRowIds={leadingReasoningRowIds}
+          openedGroupReasoningRowIds={openedGroupReasoningRowIds}
           maxHeight={workGroupMaxHeight}
           groupId={props.anchorKey}
           rowSizing={props.rowSizing}
@@ -651,7 +636,7 @@ function ThreadReasoningGroup(props: {
 
   if (props.maxHeight === undefined) {
     return (
-      <View className="ml-7 py-1">
+      <View className="py-1">
         {props.activities.map((row) => (
           <View key={row.id}>{props.renderReasoning(row.workEntry.detail ?? "")}</View>
         ))}
@@ -660,7 +645,7 @@ function ThreadReasoningGroup(props: {
   }
 
   return (
-    <View className="ml-7">
+    <View>
       <Animated.ScrollView
         nestedScrollEnabled
         style={{ maxHeight: props.maxHeight }}
@@ -699,7 +684,7 @@ function ThreadWorkGroupList(props: {
   readonly edgeFadeColor: string;
   readonly expandedRows: Readonly<Record<string, boolean>>;
   readonly expandThinkingByDefault: boolean;
-  readonly leadingReasoningRowIds: ReadonlySet<string> | undefined;
+  readonly openedGroupReasoningRowIds: ReadonlySet<string> | undefined;
   readonly maxHeight: number;
   readonly groupId: string;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
@@ -779,7 +764,7 @@ function ThreadWorkGroupList(props: {
       row,
       props.expandedRows,
       props.expandThinkingByDefault,
-      props.leadingReasoningRowIds,
+      props.openedGroupReasoningRowIds,
     ) || props.rowSizing.fixedRowHeight === undefined
       ? undefined
       : props.rowSizing.fixedRowHeight + (index < props.activities.length - 1 ? WORK_ROW_GAP : 0);
@@ -983,6 +968,11 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
   const { row, expanded } = props;
   const gt = useGT();
   const messages = useMessages();
+  const { height: windowHeight } = useWindowDimensions();
+  const reasoningMaxHeight = resolveReasoningMaxHeight(
+    props.workLogScrollHeight ?? "default",
+    windowHeight,
+  );
   const openLinkedThread = useOpenLinkedThread();
   const canSignInToMcp = useAtomValue(
     threadEnvironment.mcpSignInStart.permissionAtom(props.environmentId),
@@ -1346,7 +1336,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
           entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
           layout={WORK_LOG_LAYOUT_TRANSITION}
-          className={reasoning ? "ml-7 py-1" : "pb-1 pt-0.5"}
+          className={reasoning ? "py-1" : "pb-1 pt-0.5"}
         >
           {row.workEntry.questionAnswer ? (
             <QuestionAnswerHistory
@@ -1381,7 +1371,8 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             nestedScrollEnabled
             directionalLockEnabled
             showsVerticalScrollIndicator
-            className="max-h-60"
+            className={reasoning ? undefined : "max-h-60"}
+            style={reasoning ? { maxHeight: reasoningMaxHeight } : undefined}
             contentContainerStyle={{ paddingRight: 8 }}
           >
             {reasoning ? (

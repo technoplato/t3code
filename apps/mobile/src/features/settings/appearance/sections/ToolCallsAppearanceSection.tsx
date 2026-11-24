@@ -6,6 +6,7 @@ import { View } from "react-native";
 
 import { AppText as Text } from "../../../../components/ui/AppText";
 import { ListChoiceRow } from "../../../../components/ui/ListChoiceRow";
+import { EXPAND_THINKING_BY_DEFAULT } from "../../../../persistence/mobile-preferences";
 import { mobilePreferencesAtom, saveMobilePreferences } from "../../../../state/preferences";
 import { useAtomCommand } from "../../../../state/use-atom-command";
 import { SettingsSection } from "../../components/SettingsSection";
@@ -38,7 +39,7 @@ export function ToolCallsAppearanceSection() {
   const loaded = AsyncResult.isSuccess(preferences);
   const selected = loaded ? (preferences.value.toolCallVisibility ?? "showAll") : null;
   const expandThinkingByDefault = loaded
-    ? (preferences.value.expandThinkingByDefault ?? false)
+    ? (preferences.value.expandThinkingByDefault ?? EXPAND_THINKING_BY_DEFAULT)
     : false;
   const expandToolCallsByDefault = loaded
     ? (preferences.value.expandToolCallsByDefault ?? false)

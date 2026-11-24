@@ -11,6 +11,7 @@ import {
 import { AsyncResult, Atom } from "effect/reactivity";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
+import { EXPAND_THINKING_BY_DEFAULT } from "../../persistence/mobile-preferences";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
@@ -526,7 +527,7 @@ function ThreadDetailBody(
     ? (preferences.value.toolCallVisibility ?? "showAll")
     : "showAll";
   const expandThinkingByDefault = AsyncResult.isSuccess(preferences)
-    ? (preferences.value.expandThinkingByDefault ?? false)
+    ? (preferences.value.expandThinkingByDefault ?? EXPAND_THINKING_BY_DEFAULT)
     : false;
   const expandToolCallsByDefault = AsyncResult.isSuccess(preferences)
     ? (preferences.value.expandToolCallsByDefault ?? false)

@@ -251,10 +251,10 @@ import {
 import { touchClientView } from "../../connection/client-view";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { type ThreadWorkGroupScrollPosition } from "./thread-feed-scroll-position";
+import { resolveOpenedGroupReasoningRowIds } from "./thread-work-log-thinking";
 import {
   collapsedWorkLogHeight,
   isWorkRowExpanded,
-  resolveLeadingReasoningRowIds,
   ThreadDisclosureChevron,
   THREAD_DISCLOSURE_TRANSITION_MS,
   ThreadWorkGroupToggle,
@@ -4334,7 +4334,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         ) {
           return undefined;
         }
-        const leadingReasoningIds = resolveLeadingReasoningRowIds(
+        const openedGroupReasoningIds = resolveOpenedGroupReasoningRowIds(
           entry.activities,
           entry.id.startsWith("work-details:") &&
             expandedWorkGroups[entry.id.slice("work-details:".length)] === true,
@@ -4346,7 +4346,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               activity,
               expandedWorkRows,
               props.expandThinkingByDefault ?? false,
-              leadingReasoningIds,
+              openedGroupReasoningIds,
             ),
         )
           ? undefined
