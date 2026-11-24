@@ -1279,6 +1279,14 @@
   "522713f306fbe418": "in {duration}",
   "391f43ef06ab0614": "↻ {duration}",
   "c47ebef856c52c5f": "resets in {duration}",
+  "0c344ed78734927e": "Turns go through a custom endpoint, so this login's quota does not apply.",
+  "86a9780712cf6e3c": "This login does not report usage limits.",
+  "55471f5376fd3881": "Usage limits could not be read: {message}",
+  "59c3034d2ab51106": "Usage limits could not be read.",
+  "2a61a6078a35f6b0": "No usage limits reported yet.",
+  "07f5912af296f9ea": "{remaining}% left",
+  "af7c708ff830c4c9": "Limit reached",
+  "f585215f0e5067b2": "as of {age} ago",
   "aeac6844ac2cde59": "Plain text",
   "d1d2b3130458bf2e": "Assembly",
   "06ca993fa4236249": "Ask anything. @ files, $ skills, / commands",
@@ -3179,10 +3187,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "on the computer that opened this page"
-      ]
+      "c": [" ", "on the computer that opened this page"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3194,10 +3199,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· whoever runs it gets this access"
-      ]
+      "c": [" ", "· whoever runs it gets this access"]
     }
   ],
   "c54cc9c75db9dc58": "Only approve a sign-in you just started.",
@@ -12230,7 +12232,6 @@
   "d6961d3b4c9657da": "{label}: {remaining}% left, {timeLeft}% of the window left, {resetsIn}",
   "ade1cf4e2c1ff4b4": "{label}: {remaining}% left, {timeLeft}% of the window left",
   "f6116fcec2d2ea7f": "{remaining}% left · {timeLeft}% of the window left",
-  "07f5912af296f9ea": "{remaining}% left",
   "a01c358de99da345": "Resets {resetsAt} · {resetsIn}",
   "93b30237a69f3fc4": "Resets {resetsAt}",
   "69b2a63d2321a66c": "Using…",

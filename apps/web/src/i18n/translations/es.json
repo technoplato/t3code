@@ -1279,6 +1279,14 @@
   "522713f306fbe418": "en {duration}",
   "391f43ef06ab0614": "↻ {duration}",
   "c47ebef856c52c5f": "se restablece en {duration}",
+  "0c344ed78734927e": "Los turnos pasan por un endpoint personalizado, así que la cuota de este inicio de sesión no aplica.",
+  "86a9780712cf6e3c": "Este inicio de sesión no informa límites de uso.",
+  "55471f5376fd3881": "No se pudieron leer los límites de uso: {message}",
+  "59c3034d2ab51106": "No se pudieron leer los límites de uso.",
+  "2a61a6078a35f6b0": "Aún no se han informado límites de uso.",
+  "07f5912af296f9ea": "Queda un {remaining}%",
+  "af7c708ff830c4c9": "Límite alcanzado",
+  "f585215f0e5067b2": "hace {age}",
   "aeac6844ac2cde59": "Texto sin formato",
   "d1d2b3130458bf2e": "Assembly",
   "06ca993fa4236249": "Pregunta lo que quieras. @ archivos, $ skills, / comandos",
@@ -3179,10 +3187,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "en el ordenador que abrió esta página"
-      ]
+      "c": [" ", "en el ordenador que abrió esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3194,10 +3199,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quien lo ejecute obtiene este acceso"
-      ]
+      "c": [" ", "· quien lo ejecute obtiene este acceso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprueba solo un inicio de sesión que acabes de iniciar.",
@@ -12191,17 +12193,17 @@
   "c6cf1b06e0433ca3": "Progreso de la configuración",
   "e0167c02ca493094": "{step}, paso {number}, {summary}",
   "6389dee75a7cb536": "{step}, paso {number}",
-  "97823d9ea05f1d3e": "Soonest reset",
-  "6b204e7db3da10b5": "Session, most left",
-  "8d598d553a91287a": "Session, most used",
-  "426c0be1f963d8d6": "Week, most left",
-  "a14cd93a854b1514": "Week, most used",
-  "e376dc184e1b2895": "Week, soonest reset",
-  "e3c881b1e179eed2": "Sort and filter accounts",
-  "c5f8382d31188e50": "Sort accounts",
-  "beda5dd7c6e9b367": "Hide accounts with",
-  "c88a27a0b8ab2ced": "Empty sessions",
-  "e7cda30a6f258f8a": "Empty weeks",
+  "97823d9ea05f1d3e": "Restablecimiento más próximo",
+  "6b204e7db3da10b5": "Sesión, más restante",
+  "8d598d553a91287a": "Sesión, más usado",
+  "426c0be1f963d8d6": "Semana, más restante",
+  "a14cd93a854b1514": "Semana, más usado",
+  "e376dc184e1b2895": "Semana, restablecimiento más próximo",
+  "e3c881b1e179eed2": "Ordenar y filtrar cuentas",
+  "c5f8382d31188e50": "Ordenar cuentas",
+  "beda5dd7c6e9b367": "Ocultar cuentas con",
+  "c88a27a0b8ab2ced": "Sesiones vacías",
+  "e7cda30a6f258f8a": "Semanas vacías",
   "5434b97f68b55d8f": "Por encima del ritmo: gastas más rápido de lo que avanza la ventana",
   "4e518c48e00f45a9": "Al ritmo de la ventana",
   "53e1b6487b5ddd6a": "Por debajo del ritmo: queda margen para el resto de la ventana",
@@ -12215,7 +12217,6 @@
   "d6961d3b4c9657da": "{label}: queda un {remaining}%, queda un {timeLeft}% de la ventana, {resetsIn}",
   "ade1cf4e2c1ff4b4": "{label}: queda un {remaining}%, queda un {timeLeft}% de la ventana",
   "f6116fcec2d2ea7f": "Queda un {remaining}% · queda un {timeLeft}% de la ventana",
-  "07f5912af296f9ea": "Queda un {remaining}%",
   "a01c358de99da345": "Se restablece {resetsAt} · {resetsIn}",
   "93b30237a69f3fc4": "Se restablece {resetsAt}",
   "69b2a63d2321a66c": "Usando…",
@@ -12235,9 +12236,9 @@
   "4df3ff1be768a7ab": "{name}: queda un {remaining}%",
   "7aaaff1c6484f25c": "Segmento",
   "8bcab2ef61de6518": "Límite de 0 $",
-  "8488e046cbf3bd18": "{count} hidden: empty sessions and empty weeks",
-  "81ef75af0d6ff467": "{count, plural, one {{count} empty session hidden} other {{count} empty sessions hidden}}",
-  "e3b4eed7a3aea987": "{count, plural, one {{count} empty week hidden} other {{count} empty weeks hidden}}",
+  "8488e046cbf3bd18": "{count} ocultas: sesiones vacías y semanas vacías",
+  "81ef75af0d6ff467": "{count, plural, one {{count} sesión vacía oculta} other {{count} sesiones vacías ocultas}}",
+  "e3b4eed7a3aea987": "{count, plural, one {{count} semana vacía oculta} other {{count} semanas vacías ocultas}}",
   "a16b48709357a5a7": "Gestionar uso",
   "a00e74aaa421c524": "restante",
   "8bd6f07136317c8f": "Ningún proveedor de los entornos seleccionados informa de límites de suscripción.",

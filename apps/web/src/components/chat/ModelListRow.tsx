@@ -11,6 +11,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { modelPickerModelKey } from "./modelPickerKeys";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import type { QuotaTone } from "@t3tools/client-runtime/provider-quota-remaining";
+import { QuotaRowLabel } from "./ModelPickerQuota";
 
 export const ModelListRow = memo(function ModelListRow(props: {
   index: number;
@@ -33,6 +35,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
   unavailable?: boolean;
   jumpLabel?: string | null;
   disabledReason?: string | null;
+  /** Set only for a model its login meters apart; flat so the memoized row stays memoized. */
+  quotaShort?: string | undefined;
+  quotaFull?: string | undefined;
+  quotaTone?: QuotaTone | undefined;
+  quotaStale?: boolean | undefined;
   onToggleFavorite: (instanceId: ProviderInstanceId, slug: string) => void;
 }) {
   const gt = useGT();
@@ -103,6 +110,14 @@ export const ModelListRow = memo(function ModelListRow(props: {
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        {props.quotaShort && props.quotaFull && props.quotaTone ? (
+          <QuotaRowLabel
+            short={props.quotaShort}
+            full={props.quotaFull}
+            tone={props.quotaTone}
+            stale={props.quotaStale ?? false}
+          />
+        ) : null}
         <Tooltip>
           <TooltipTrigger
             render={

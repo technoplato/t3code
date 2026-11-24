@@ -73,7 +73,14 @@ import {
   withStoredThreadModelOptions,
 } from "../../lib/modelOptions";
 import { groupModelsBySubProvider } from "@t3tools/client-runtime/providerSubProviders";
-import type { ProviderQuota } from "@t3tools/client-runtime/provider-quota-remaining";
+import {
+  modelQuotaLine,
+  quotaLineFor,
+  quotaTone,
+  type ProviderQuota,
+  type ProviderQuotaLine,
+} from "@t3tools/client-runtime/provider-quota-remaining";
+import { formatQuotaLine } from "@t3tools/shared/usageLimitsCopy";
 import { applyProviderOptionSelection } from "../../lib/providerOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import {
@@ -113,6 +120,7 @@ import {
 import { useSearchToolbarInset } from "../../components/ui/useBarInset";
 import type { AppBarSearch } from "../../components/ui/AppBar";
 import { ModelRow, ChoiceRow } from "./ThreadSettingsRows";
+import { QuotaBadgeText, type QuotaBadge } from "./ThreadSettingsRows.shared";
 import {
   compatibleRuntimeModeForChoices,
   runtimeModeChoicesForSupportedModes,
@@ -123,6 +131,7 @@ import {
 import {
   canCommitPendingModel,
   modelFavoriteKey,
+  loginQuotas,
   mostRemainingOrder,
   pendingModelAfterPress,
   pendingModelForLogin,
@@ -153,7 +162,17 @@ const EMPTY_MODEL_FAVORITES: ReadonlyArray<{
   readonly model: string;
 }> = [];
 const FAVORITES_PROVIDER_FILTER = "@favorites";
-const NO_PROVIDER_QUOTAS: ReadonlyMap<string, ProviderQuota> = new Map();
+const NO_PROVIDER_QUOTAS: ReadonlyMap<string, ProviderQuotaLine> = new Map();
+
+function quotaBadge(line: ProviderQuotaLine, now: number, resolve: MessageResolver): QuotaBadge {
+  const copy = formatQuotaLine(line, now, resolve);
+  return {
+    short: copy.short,
+    full: copy.full,
+    tone: quotaTone(line),
+    stale: line._tag !== "Unknown" && line.stale,
+  };
+}
 // Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites.
 const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
 function ProviderHeader(props: {
@@ -164,8 +183,8 @@ function ProviderHeader(props: {
   readonly nested?: boolean;
   /** Why the section has no usable models, such as a signed-out backend. */
   readonly detail?: string | undefined;
-  /** Quota this login has left for the selected model, shown while sorting by it. */
-  readonly quota?: string | undefined;
+  /** The login's quota; while sorting by most remaining, its quota for the selected model. */
+  readonly quota?: QuotaBadge | undefined;
   readonly collapsible: boolean;
   readonly collapsed: boolean;
   readonly modelCount: number;
@@ -188,9 +207,7 @@ function ProviderHeader(props: {
       {props.quota ? (
         <>
           <View className="flex-1" />
-          <Text className="text-2xs font-t3-medium text-foreground-muted" numberOfLines={1}>
-            {props.quota}
-          </Text>
+          <QuotaBadgeText quota={props.quota} />
         </>
       ) : null}
       {props.collapsible ? (
@@ -220,7 +237,7 @@ function ProviderHeader(props: {
             provider: props.label,
             count: props.modelCount,
           }),
-          ...(props.quota ? [props.quota] : []),
+          ...(props.quota ? [props.quota.full] : []),
         ].join(", ")}
         accessibilityRole="button"
         accessibilityState={{ expanded: !props.collapsed }}
@@ -336,7 +353,10 @@ type ThreadSettingsSessionValue = {
   readonly modelSort: ThreadSettingsModelSort;
   readonly selectModelSort: (sort: ThreadSettingsModelSort) => void;
   /** While sorting by most remaining: the quota of each login offering the selected model. */
-  readonly providerQuotas: ReadonlyMap<string, ProviderQuota>;
+  readonly providerQuotas: ReadonlyMap<string, ProviderQuotaLine>;
+  /** Each provider section's quota reading, keyed by section. */
+  readonly loginQuotas: ReadonlyMap<string, ProviderQuota>;
+  readonly now: number;
   readonly favoriteKeys: ReadonlySet<string>;
   readonly favoritesLoaded: boolean;
   readonly toggleFavorite: (option: ModelOption) => void;
@@ -711,6 +731,8 @@ function ThreadSettingsSessionProvider(
     modelSort,
     selectModelSort,
     providerQuotas: mostRemaining?.quotas ?? NO_PROVIDER_QUOTAS,
+    loginQuotas: loginQuotas({ groups: providerGroups, providers: config?.providers ?? [] }),
+    now,
     manageHidden,
     setManageHidden,
     toggleHidden,
@@ -790,7 +812,7 @@ type ThreadSettingsProviderCatalog = {
   readonly driver: string | undefined;
   readonly iconUrl: string | undefined;
   readonly label: string;
-  readonly quota: ProviderQuota | undefined;
+  readonly quota: ProviderQuotaLine | undefined;
   readonly collapsible: boolean;
   readonly collapsed: boolean;
   readonly modelCount: number;
@@ -843,7 +865,12 @@ function ThreadSettingsModelListRow(props: {
   readonly isLast: boolean;
 }) {
   const session = useThreadSettingsSession();
+  const messages = useMessages();
   const onPress = () => session.pressModel(props.option);
+  const loginQuota = session.loginQuotas.get(props.option.providerKey);
+  const quota = loginQuota
+    ? modelQuotaLine(loginQuota, props.option.selection.model, session.now)
+    : null;
 
   return (
     <ModelRow
@@ -860,6 +887,7 @@ function ThreadSettingsModelListRow(props: {
       }
       hiddenUpdatePending={session.pendingHiddenKeys.has(props.option.key)}
       option={props.option}
+      quota={quota ? quotaBadge(quota, session.now, messages) : undefined}
       selected={session.isDisplayed(props.option)}
     />
   );
@@ -868,20 +896,14 @@ function ThreadSettingsModelListRow(props: {
 function ThreadSettingsProviderListHeader(props: {
   readonly provider: ThreadSettingsProviderCatalog;
 }) {
-  const gt = useGT();
   const session = useThreadSettingsSession();
   const onToggle = () => session.toggleProvider(props.provider.key);
+  const messages = useMessages();
   const quota = props.provider.quota;
 
   return (
     <ProviderHeader
-      quota={
-        quota?.kind === "available"
-          ? gt("{remaining}% left", { remaining: quota.remainingPercent })
-          : quota?.kind === "exhausted"
-            ? gt("Usage limit reached")
-            : undefined
-      }
+      quota={quota ? quotaBadge(quota, session.now, messages) : undefined}
       collapsible={props.provider.collapsible}
       collapsed={props.provider.collapsed}
       driver={props.provider.driver}
@@ -912,6 +934,17 @@ function ThreadSettingsSubProviderListHeader(props: {
       onToggle={onToggle}
     />
   );
+}
+
+/** While sorting by most remaining, a login offering the selected model shows its quota for it. */
+function loginQuotaLine(
+  session: ThreadSettingsSessionValue,
+  providerKey: string,
+): ProviderQuotaLine | undefined {
+  const forSelected = session.providerQuotas.get(providerKey);
+  if (forSelected) return forSelected;
+  const quota = session.loginQuotas.get(providerKey);
+  return quota ? quotaLineFor(quota, null, session.now) : undefined;
 }
 
 const modelItems = (models: ReadonlyArray<ModelOption>) =>
@@ -1030,7 +1063,7 @@ function buildThreadSettingsCatalogItems(
       driver,
       iconUrl: group.models[0]?.providerIconUrl,
       label: group.providerLabel,
-      quota: session.providerQuotas.get(group.providerKey),
+      quota: loginQuotaLine(session, group.providerKey),
       collapsible,
       collapsed,
       modelCount: visibleModels.length,

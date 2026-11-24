@@ -5,6 +5,42 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { cn } from "../../lib/cn";
 import type { ModelOption } from "../../lib/modelOptions";
+import type { QuotaTone } from "@t3tools/client-runtime/provider-quota-remaining";
+
+/** A quota line as a row shows it: short text, the whole line for VoiceOver, and how loud. */
+export type QuotaBadge = {
+  readonly short: string;
+  readonly full: string;
+  readonly tone: QuotaTone;
+  readonly stale: boolean;
+};
+
+/** Short quota text; stale readings get a clock and dim, spent ones read red. */
+export function QuotaBadgeText(props: { readonly quota: QuotaBadge }) {
+  const { quota } = props;
+  return (
+    <View className={cn("flex-row items-center gap-0.5", quota.stale && "opacity-60")}>
+      {quota.stale ? (
+        <SymbolView
+          name="clock"
+          size={10}
+          tintColorClassName="accent-icon-subtle"
+          type="monochrome"
+        />
+      ) : null}
+      <Text
+        className={cn(
+          "text-2xs font-t3-medium text-foreground-muted",
+          quota.tone === "exhausted" && "text-danger-foreground",
+          quota.tone === "low" && "text-warning-foreground",
+        )}
+        numberOfLines={1}
+      >
+        {quota.short}
+      </Text>
+    </View>
+  );
+}
 
 export type ModelRowProps = {
   readonly option: ModelOption;
@@ -15,6 +51,8 @@ export type ModelRowProps = {
   readonly onToggleFavorite: () => void;
   readonly onToggleHidden?: () => void;
   readonly hiddenUpdatePending?: boolean;
+  /** Only for a model its login meters apart, such as Fable's own week. */
+  readonly quota?: QuotaBadge | undefined;
   readonly isFirst: boolean;
   readonly isLast: boolean;
 };
@@ -53,7 +91,9 @@ export function ModelRowContent(
       )}
     >
       <Pressable
-        accessibilityLabel={[props.option.label, props.option.subtitle].filter(Boolean).join(", ")}
+        accessibilityLabel={[props.option.label, props.option.subtitle, props.quota?.full]
+          .filter(Boolean)
+          .join(", ")}
         accessibilityRole="radio"
         accessibilityState={{
           checked: props.selected,
@@ -106,6 +146,7 @@ export function ModelRowContent(
             </Text>
           ) : null}
         </View>
+        {props.quota ? <QuotaBadgeText quota={props.quota} /> : null}
         {props.trailingSelection}
       </Pressable>
       {props.onToggleHidden ? (

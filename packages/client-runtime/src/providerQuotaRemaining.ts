@@ -229,6 +229,18 @@ export function modelQuotaLine(
   }
 }
 
+export type QuotaTone = "remaining" | "low" | "exhausted" | "unknown";
+
+/** How loud a picker shows a line: 10% or less left reads as low. */
+export const quotaTone = (line: ProviderQuotaLine): QuotaTone =>
+  line._tag === "Unknown"
+    ? "unknown"
+    : line._tag === "Exhausted"
+      ? "exhausted"
+      : line.remainingPercent <= 10
+        ? "low"
+        : "remaining";
+
 /** A login's remaining quota for a model is the tightest window that meters it. */
 export function providerQuotaForModel(
   provider: QuotaProvider | undefined,

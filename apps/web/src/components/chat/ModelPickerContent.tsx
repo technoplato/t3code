@@ -30,6 +30,13 @@ import {
 import { ChevronRightIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
+import { useQuotaCopy, useQuotaNow } from "./ModelPickerQuota";
+import {
+  modelQuotaLine,
+  providerQuota,
+  quotaTone,
+  type ProviderQuota,
+} from "@t3tools/client-runtime/provider-quota-remaining";
 import { useProviderWorkspaceSnapshotRefresh } from "./useProviderWorkspaceSnapshotRefresh";
 import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
 import {
@@ -561,6 +568,24 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const canOpenProviderSetup = onOpenProviderSetup !== undefined;
 
   const entryByInstanceId = new Map(instanceEntries.map((entry) => [entry.instanceId, entry]));
+  const quotaNow = useQuotaNow();
+  const quotaCopy = useQuotaCopy();
+  const quotaByInstanceId = new Map<ProviderInstanceId, ProviderQuota>(
+    instanceEntries.map((entry) => [entry.instanceId, providerQuota(entry.snapshot)]),
+  );
+  const modelQuota = (instanceId: ProviderInstanceId, slug: string) => {
+    const quota = quotaByInstanceId.get(instanceId);
+    if (!quota) return undefined;
+    const line = modelQuotaLine(quota, slug, quotaNow);
+    if (!line) return undefined;
+    const copy = quotaCopy(line, quotaNow);
+    return {
+      quotaShort: copy.short,
+      quotaFull: copy.full,
+      quotaTone: quotaTone(line),
+      quotaStale: line._tag !== "Unknown" && line.stale,
+    };
+  };
   const matchesLockedProvider = (
     entry: Pick<ProviderInstanceEntry, "driverKind" | "continuationGroupKey">,
   ): boolean => {
@@ -1234,6 +1259,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     unavailable={model.isUnavailable === true}
                     jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
                     disabledReason={disabledReason}
+                    {...modelQuota(model.instanceId, model.slug)}
                     onToggleFavorite={toggleFavorite}
                   />
                 );

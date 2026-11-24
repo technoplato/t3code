@@ -1,9 +1,11 @@
 import { Toolbar } from "@base-ui/react/toolbar";
 import { type ProviderInstanceId } from "@t3tools/contracts";
+import { providerQuota, quotaLineFor } from "@t3tools/client-runtime/provider-quota-remaining";
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { msg, T, useMessages } from "gt-react";
 import { StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import { QuotaRailMeter, useQuotaCopy, useQuotaNow } from "./ModelPickerQuota";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import type { MessageResolver } from "../../i18n/messages";
@@ -58,6 +60,8 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
   getDisabledInstanceTooltip?: (entry: ProviderInstanceEntry) => string;
 }) {
   const m = useMessages();
+  const now = useQuotaNow();
+  const quotaCopy = useQuotaCopy();
   const handleSelect = (instanceId: ProviderInstanceId | "favorites") => {
     props.onSelectInstance(instanceId);
   };
@@ -153,11 +157,18 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
             const isHovered = hoveredInstanceId === entry.instanceId;
             const showInstanceBadge = shouldShowInstanceBadge(entry, props.instanceEntries);
 
+            const quota = isDisabled
+              ? null
+              : quotaLineFor(providerQuota(entry.snapshot), null, now);
+            const quotaText = quota ? quotaCopy(quota, now).full : null;
+            const quotaLabel = quotaText
+              ? `${entry.displayName} · ${quotaText}`
+              : entry.displayName;
             const tooltip = isUnavailable
               ? describeUnavailableInstance(entry, m)
               : isContextDisabled
                 ? (props.getDisabledInstanceTooltip?.(entry) ?? entry.displayName)
-                : entry.displayName;
+                : quotaLabel;
 
             const button = (
               <Toolbar.Button
@@ -180,6 +191,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                 aria-pressed={isSelected}
                 type="button"
                 aria-label={isUnavailable || isContextDisabled ? tooltip : entry.displayName}
+                aria-description={quotaText ?? undefined}
               >
                 <ProviderInstanceIcon
                   driverKind={entry.driverKind}
@@ -199,6 +211,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                   }
                   {...(entry.accentColor ? { badgeClassName: "h-3 min-w-3 px-0.5 text-5xs" } : {})}
                 />
+                {quota ? <QuotaRailMeter line={quota} /> : null}
               </Toolbar.Button>
             );
 

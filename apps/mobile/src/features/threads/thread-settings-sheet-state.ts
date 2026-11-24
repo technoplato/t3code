@@ -1,7 +1,9 @@
 import {
   mostRemainingChoice,
+  providerQuota,
   providerQuotaForModel,
   sortByMostRemaining,
+  type ProviderQuota,
   type ProviderQuotaLine,
   type QuotaProvider,
 } from "@t3tools/client-runtime/provider-quota-remaining";
@@ -169,6 +171,23 @@ export function mostRemainingOrder(input: {
       (login) => login.key === selected?.key,
     ),
   };
+}
+
+/** Each provider section's quota reading, keyed like the section; a section without a login has none. */
+export function loginQuotas(input: {
+  readonly groups: ReadonlyArray<ProviderGroup>;
+  readonly providers: ReadonlyArray<Pick<ServerProvider, "instanceId"> & QuotaProvider>;
+}): ReadonlyMap<string, ProviderQuota> {
+  const quotas = new Map<string, ProviderQuota>();
+  for (const group of input.groups) {
+    const instanceId = group.models[0]?.selection.instanceId;
+    if (instanceId === undefined) continue;
+    quotas.set(
+      group.providerKey,
+      providerQuota(input.providers.find((provider) => provider.instanceId === instanceId)),
+    );
+  }
+  return quotas;
 }
 
 /** Moving to another login of the same model keeps the options already chosen for it. */

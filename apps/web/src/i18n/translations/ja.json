@@ -1279,6 +1279,14 @@
   "522713f306fbe418": "{duration}後",
   "391f43ef06ab0614": "↻ {duration}",
   "c47ebef856c52c5f": "{duration}後にリセット",
+  "0c344ed78734927e": "ターンはカスタムエンドポイントを経由するため、このログインのクォータは適用されません。",
+  "86a9780712cf6e3c": "このログインは使用量の上限を報告しません。",
+  "55471f5376fd3881": "使用量の上限を読み取れませんでした: {message}",
+  "59c3034d2ab51106": "使用量の上限を読み取れませんでした。",
+  "2a61a6078a35f6b0": "使用量の上限はまだ報告されていません。",
+  "07f5912af296f9ea": "残り {remaining}%",
+  "af7c708ff830c4c9": "上限に到達",
+  "f585215f0e5067b2": "{age}前の情報",
   "aeac6844ac2cde59": "プレーンテキスト",
   "d1d2b3130458bf2e": "アセンブリ",
   "06ca993fa4236249": "何でも聞いてください。@ でファイル、$ でスキル、/ でコマンド",
@@ -3177,10 +3185,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "(このページを開いたコンピューター上)"
-      ]
+      "c": [" ", "(このページを開いたコンピューター上)"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3192,10 +3197,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· 実行した人にこのアクセス権が付与されます"
-      ]
+      "c": [" ", "· 実行した人にこのアクセス権が付与されます"]
     }
   ],
   "c54cc9c75db9dc58": "自分で開始したばかりのサインインだけを承認してください。",
@@ -12147,17 +12149,17 @@
   "c6cf1b06e0433ca3": "セットアップの進行状況",
   "e0167c02ca493094": "{step}、ステップ {number}、{summary}",
   "6389dee75a7cb536": "{step}、ステップ {number}",
-  "97823d9ea05f1d3e": "Soonest reset",
-  "6b204e7db3da10b5": "Session, most left",
-  "8d598d553a91287a": "Session, most used",
-  "426c0be1f963d8d6": "Week, most left",
-  "a14cd93a854b1514": "Week, most used",
-  "e376dc184e1b2895": "Week, soonest reset",
-  "e3c881b1e179eed2": "Sort and filter accounts",
-  "c5f8382d31188e50": "Sort accounts",
-  "beda5dd7c6e9b367": "Hide accounts with",
-  "c88a27a0b8ab2ced": "Empty sessions",
-  "e7cda30a6f258f8a": "Empty weeks",
+  "97823d9ea05f1d3e": "リセットが近い順",
+  "6b204e7db3da10b5": "セッション: 残りが多い順",
+  "8d598d553a91287a": "セッション: 使用が多い順",
+  "426c0be1f963d8d6": "週: 残りが多い順",
+  "a14cd93a854b1514": "週: 使用が多い順",
+  "e376dc184e1b2895": "週: リセットが近い順",
+  "e3c881b1e179eed2": "アカウントの並べ替えと絞り込み",
+  "c5f8382d31188e50": "アカウントを並べ替え",
+  "beda5dd7c6e9b367": "次のアカウントを非表示",
+  "c88a27a0b8ab2ced": "空のセッション",
+  "e7cda30a6f258f8a": "空の週",
   "5434b97f68b55d8f": "ペース超過: 期間の経過より速く消費しています",
   "4e518c48e00f45a9": "期間に対して適正なペース",
   "53e1b6487b5ddd6a": "ペース以下: 期間の残りに余裕があります",
@@ -12171,7 +12173,6 @@
   "d6961d3b4c9657da": "{label}: 残り {remaining}%、期間の残り {timeLeft}%、{resetsIn}",
   "ade1cf4e2c1ff4b4": "{label}: 残り {remaining}%、期間の残り {timeLeft}%",
   "f6116fcec2d2ea7f": "残り {remaining}% · 期間の残り {timeLeft}%",
-  "07f5912af296f9ea": "残り {remaining}%",
   "a01c358de99da345": "{resetsAt} にリセット · {resetsIn}",
   "93b30237a69f3fc4": "{resetsAt} にリセット",
   "69b2a63d2321a66c": "使用中…",
@@ -12191,9 +12192,9 @@
   "4df3ff1be768a7ab": "{name}: 残り {remaining}%",
   "7aaaff1c6484f25c": "セグメント",
   "8bcab2ef61de6518": "上限 $0",
-  "8488e046cbf3bd18": "{count} hidden: empty sessions and empty weeks",
-  "81ef75af0d6ff467": "{count, plural, one {{count} empty session hidden} other {{count} empty sessions hidden}}",
-  "e3b4eed7a3aea987": "{count, plural, one {{count} empty week hidden} other {{count} empty weeks hidden}}",
+  "8488e046cbf3bd18": "{count} 件を非表示: 空のセッションと空の週",
+  "81ef75af0d6ff467": "{count, plural, other {空のセッション {count} 件を非表示}}",
+  "e3b4eed7a3aea987": "{count, plural, other {空の週 {count} 件を非表示}}",
   "a16b48709357a5a7": "使用量を管理",
   "a00e74aaa421c524": "残り",
   "8bd6f07136317c8f": "選択した環境には、サブスクリプションの上限を報告するプロバイダーがありません。",

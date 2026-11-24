@@ -1,5 +1,6 @@
 import type {
   ProviderConsumeResetCreditInput,
+  ProviderQuotaLine,
   ServerProviderResetCredits,
   ServerProviderUsageLimits,
   ServerProviderUsageWindow,
@@ -228,4 +229,55 @@ export function formatResetsIn(
   }
   if (style === "refill") return resolve(msg("↻ {duration}", { duration }));
   return resolve(msg("resets in {duration}", { duration }));
+}
+
+export interface QuotaLineCopy {
+  /** Fits a picker row: "14% left", "Limit reached", or a dash when unknown. */
+  readonly short: string;
+  /** The whole line for a tooltip or a screen reader. */
+  readonly full: string;
+}
+
+/** What a picker says for a login's or a model's quota line. */
+export function formatQuotaLine(
+  line: ProviderQuotaLine,
+  now: number,
+  resolve: MFunctionType = mFallback,
+): QuotaLineCopy {
+  if (line._tag === "Unknown") {
+    const full =
+      line.reason === "customEndpoint"
+        ? resolve(msg("Turns go through a custom endpoint, so this login's quota does not apply."))
+        : line.reason === "unsupported"
+          ? resolve(msg("This login does not report usage limits."))
+          : line.reason === "probeFailed"
+            ? line.message
+              ? resolve(msg("Usage limits could not be read: {message}", { message: line.message }))
+              : resolve(msg("Usage limits could not be read."))
+            : resolve(msg("No usage limits reported yet."));
+    return { short: "–", full };
+  }
+  const { window } = line;
+  const resetsAt = window.resetsAt === null ? Number.NaN : Date.parse(window.resetsAt);
+  const resets = Number.isFinite(resetsAt)
+    ? resetsAt - now < MINUTE
+      ? resolve(msg("resets now"))
+      : resolve(msg("resets in {duration}", { duration: formatDuration(resetsAt - now, resolve) }))
+    : null;
+  const short =
+    line._tag === "Remaining"
+      ? resolve(msg("{remaining}% left", { remaining: line.remainingPercent }))
+      : resolve(msg("Limit reached", { $context: "a usage limit is fully spent" }));
+  const age = line.stale
+    ? resolve(
+        msg("as of {age} ago", {
+          age: formatDuration(now - Date.parse(window.measuredAt), resolve),
+          $context: "how old a usage reading is",
+        }),
+      )
+    : null;
+  return {
+    short,
+    full: [`${window.label}: ${short}`, resets, age].filter((part) => part !== null).join(" · "),
+  };
 }
