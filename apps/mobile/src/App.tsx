@@ -1,6 +1,7 @@
 import { installPermissionUpdateNotice } from "./features/connection/permissionUpdateNotice";
 import { installComposerAttachmentUploads } from "./state/composer-attachment-uploads";
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
+import * as Application from "expo-application";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { requireNativeModule } from "expo";
@@ -145,6 +146,8 @@ const appLinking = {
     "t3code://",
     "t3code-dev://",
     "t3code-preview://",
+    // iOS also registers the bundle identifier as a scheme; a fork's build is reached by it.
+    ...(Application.applicationId ? [`${Application.applicationId}://`] : []),
     DEFAULT_HOSTED_APP_URL,
   ],
   config: { initialRouteName: "Home" },
