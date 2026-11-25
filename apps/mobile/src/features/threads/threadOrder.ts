@@ -66,6 +66,8 @@ export interface PendingThreadOrder {
   readonly assignments: ReadonlyMap<string, string>;
   readonly confirmed: ReadonlySet<string>;
   readonly commandsComplete: boolean;
+  /** The row a drop moves in from another section. It joins once its state change lands. */
+  readonly arriving?: string;
 }
 
 function rowId(row: OrderRow): string {
@@ -231,33 +233,47 @@ export function createPendingThreadOrder(input: {
 }): PendingThreadOrder {
   const orderedIds = threadOrderAfterMove(input.ordered.map(rowId), input.movedId, input.direction);
   if (orderedIds === null) throw new Error("Cannot begin an invalid thread move");
+  const before = new Map(input.ordered.map((row) => [rowId(row), rowOrder(row, input.section)]));
   return {
     section: input.section,
     orderedIds,
-    before: new Map(input.ordered.map((row) => [rowId(row), rowOrder(row, input.section)])),
+    before,
     assignments: new Map(input.assignments.map(({ id, orderKey }) => [id, orderKey])),
     confirmed: new Set(),
     commandsComplete: false,
+    ...(before.has(input.movedId) ? {} : { arriving: input.movedId }),
   };
 }
 
 /** Receipts and shell updates arrive independently. Only our own key writes
- * may pass through the hold; membership and other arrangement changes win. */
+ * may pass through the hold; membership and other arrangement changes win.
+ * A drop from another section also lets its own row join, so the row lands in
+ * its slot instead of showing first where its old key sorts. */
 export function reconcilePendingThreadOrder(
   pending: PendingThreadOrder,
   ordered: readonly OrderRow[],
 ): PendingThreadOrder | null {
-  if (ordered.length !== pending.before.size) return null;
+  const arriving = pending.arriving;
+  const arrived = arriving !== undefined && ordered.some((row) => rowId(row) === arriving);
+  if (ordered.length !== pending.before.size + (arrived ? 1 : 0)) return null;
   const confirmed = new Set(pending.confirmed);
   for (const row of ordered) {
     const id = rowId(row);
-    const before = pending.before.get(id);
     const current = rowOrder(row, pending.section);
-    if (before === undefined || current.anchor !== before.anchor) return null;
     const assigned = pending.assignments.get(id);
+    if (id === arriving) {
+      // It joins with the key and anchor of its old section; only its assigned key confirms it.
+      if (assigned !== undefined && current.key === assigned) confirmed.add(id);
+      else if (confirmed.has(id)) return null;
+      continue;
+    }
+    const before = pending.before.get(id);
+    if (before === undefined || current.anchor !== before.anchor) return null;
     if (assigned !== undefined && current.key === assigned) confirmed.add(id);
     else if (current.key !== before.key || confirmed.has(id)) return null;
   }
+  // Its key was confirmed, so a row that is gone again left the section for another reason.
+  if (arriving !== undefined && !arrived && confirmed.has(arriving)) return null;
   if (pending.commandsComplete && confirmed.size === pending.assignments.size) return null;
   return confirmed.size === pending.confirmed.size ? pending : { ...pending, confirmed };
 }

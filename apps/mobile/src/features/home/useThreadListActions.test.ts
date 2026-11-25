@@ -19,6 +19,9 @@ const state = vi.hoisted(() => ({
   dropBusy: false,
   holdingRows: false,
   failedAction: null as string | null,
+  thrownAction: null as string | null,
+  preferences: null as { workingShelfEnabled?: boolean; inboxSortOrder?: string } | null,
+  heldOrders: [] as { readonly arriving?: string }[],
   titleOutcome: null as ThreadTitleRegenerationOutcome | null,
   archivedRefreshes: [] as string[],
   onArchivedRefresh: undefined as (() => void) | undefined,
@@ -73,8 +76,10 @@ vi.mock("../../state/presentation", () => ({
 vi.mock("../../state/server", () => ({
   environmentServerConfigsAtom: "server-configs",
 }));
+vi.mock("../../state/preferences", () => ({ mobilePreferencesAtom: "mobile-preferences" }));
 vi.mock("../../state/atom-registry", async () => {
-  const registry = (await import("effect/reactivity")).AtomRegistry.make();
+  const { AsyncResult, AtomRegistry } = await import("effect/reactivity");
+  const registry = AtomRegistry.make();
   const stub = {
     set: (_atom: string, value: boolean) => {
       state.dropBusy = value;
@@ -90,22 +95,26 @@ vi.mock("../../state/atom-registry", async () => {
               ? state.shells
               : atom === "queued-thread-keys"
                 ? new Set<string>()
-                : new Map(
-                    [...state.scopes.keys()].map((environmentId) => [
-                      environmentId,
-                      {
-                        environment: {
-                          capabilities: {
-                            threadSettlement: true,
-                            threadSnooze: true,
-                            threadPinning: true,
-                            threadPinReorder: true,
-                            threadTitleRegeneration: true,
+                : atom === "mobile-preferences"
+                  ? state.preferences === null
+                    ? AsyncResult.initial()
+                    : AsyncResult.success(state.preferences)
+                  : new Map(
+                      [...state.scopes.keys()].map((environmentId) => [
+                        environmentId,
+                        {
+                          environment: {
+                            capabilities: {
+                              threadSettlement: true,
+                              threadSnooze: true,
+                              threadPinning: true,
+                              threadPinReorder: true,
+                              threadTitleRegeneration: true,
+                            },
                           },
                         },
-                      },
-                    ]),
-                  ),
+                      ]),
+                    ),
   };
   // Real atoms such as composerDraftsAtom go to a real registry; strings are stubbed state.
   return {
@@ -128,7 +137,8 @@ vi.mock("../../state/use-thread-outbox", () => ({ queuedThreadKeysAtom: "queued-
 vi.mock("../../state/thread-order", () => ({
   threadDropBusyAtom: "thread-drop-busy",
   getPendingThreadOrder: () => state.pendingOrder,
-  beginPendingThreadOrder: () => {
+  beginPendingThreadOrder: (pending: { readonly arriving?: string }) => {
+    state.heldOrders.push(pending);
     state.pendingOrder = {};
     return {
       isPending: () => state.pendingOrder !== null,
@@ -168,6 +178,7 @@ vi.mock("../../state/threads", () => ({
       }) => {
         state.requests.push({ action, ...request });
         await state.heldActions.get(action);
+        if (action === state.thrownAction) throw new Error("Connection dropped");
         if (!state.scopes.get(request.environmentId)?.has(AuthOrchestrationOperateScope)) {
           return AsyncResult.failure(Cause.fail(new Error("Thread operation denied")));
         }
@@ -182,6 +193,7 @@ vi.mock("../../state/threads", () => ({
 
 import { appAtomRegistry } from "../../state/atom-registry";
 import { composerDraftsAtom } from "../../state/use-composer-drafts";
+import { registerThreadDismissal } from "./thread-dismissal";
 import { dismissThreadUndoNotice, readThreadUndoNotice } from "./thread-undo-notice";
 import { useThreadListActions } from "./useThreadListActions";
 
@@ -213,6 +225,10 @@ const mutationCases = [
 beforeEach(() => {
   state.connectedEnvironmentIds = [primaryEnvironmentId, otherEnvironmentId];
   state.failedAction = null;
+  state.thrownAction = null;
+  // Active ordered by hand: the Working shelf off and the default sort.
+  state.preferences = { workingShelfEnabled: false };
+  state.heldOrders = [];
   state.titleOutcome = null;
   state.archivedRefreshes = [];
   state.onArchivedRefresh = undefined;
@@ -660,5 +676,194 @@ describe("thread archive guard", () => {
     state.shells = [thread];
     expect(await useThreadListActions().archiveThread(makeThread())).toBe(false);
     expect(state.requests).toEqual([]);
+  });
+});
+
+describe("thread drops", () => {
+  const PINNED_AT = "2026-09-02T00:00:00.000Z";
+  const INTO_ACTIVE = { section: "active", targetId: null, placement: "before" } as const;
+  const INTO_SETTLED = { section: "settled", targetId: null, placement: "before" } as const;
+  const neighbor = (input: Partial<EnvironmentThreadShell> = {}) =>
+    makeThread({ id: ThreadId.make("neighbor"), ...input });
+  const actions = () => state.requests.map(({ action }) => action);
+
+  /** Counts the swipe-off dismissals a row of this thread would play. */
+  function watchDismissals(thread: EnvironmentThreadShell) {
+    const counter = { dismissals: 0 };
+    const unregister = registerThreadDismissal(`${thread.environmentId}:${thread.id}`, () => {
+      counter.dismissals += 1;
+      return { finished: Promise.resolve(), restore: () => {} };
+    });
+    return Object.assign(counter, { unregister });
+  }
+
+  it.each([
+    ["a reorder", "reorderPin", "up", { pinnedAt: PINNED_AT, pinOrderKey: "m" }],
+    ["a pin", "pin", { section: "pinned", targetId: null, placement: "before" }, {}],
+    ["an unpin", "unpin", INTO_ACTIVE, { pinnedAt: PINNED_AT, pinOrderKey: "m" }],
+    ["a settle", "settle", INTO_SETTLED, {}],
+    ["an un-settle", "unsettle", INTO_ACTIVE, { settledOverride: "settled" }],
+    ["a wake", "unsnooze", INTO_ACTIVE, { snoozedUntil: "2099-01-01T09:00:00.000Z" }],
+  ] as const)(
+    "clears the drop lock and the held order when %s rejects",
+    async (_name, action, destination, input) => {
+      const moved = makeThread(input);
+      state.shells = [
+        moved,
+        neighbor(action === "reorderPin" ? { pinnedAt: PINNED_AT, pinOrderKey: "g" } : {}),
+      ];
+      const { moveThread } = useThreadListActions();
+      state.thrownAction = action;
+
+      await expect(moveThread(moved, destination)).rejects.toThrow("Connection dropped");
+      expect(state.dropBusy).toBe(false);
+      expect(state.pendingOrder).toBeNull();
+
+      // The next move is not refused.
+      state.thrownAction = null;
+      state.requests = [];
+      expect(await moveThread(moved, destination)).toBe(true);
+      expect(actions()).toContain(action);
+      expect(state.dropBusy).toBe(false);
+    },
+  );
+
+  it("clears the drop lock and the held order when a mutation fails", async () => {
+    const moved = makeThread({ pinnedAt: PINNED_AT, pinOrderKey: "m" });
+    state.shells = [moved, neighbor({ pinnedAt: PINNED_AT, pinOrderKey: "g" })];
+    state.failedAction = "reorderPin";
+
+    expect(await useThreadListActions().moveThread(moved, "up")).toBe(false);
+    expect(state.dropBusy).toBe(false);
+    expect(state.pendingOrder).toBeNull();
+  });
+
+  it.each([
+    ["settle", INTO_SETTLED, {}],
+    ["unpin", INTO_ACTIVE, { pinnedAt: PINNED_AT, pinOrderKey: "m" }],
+    ["unsettle", INTO_ACTIVE, { settledOverride: "settled" }],
+    ["unsnooze", INTO_ACTIVE, { snoozedUntil: "2099-01-01T09:00:00.000Z" }],
+  ] as const)(
+    "a drop that needs %s leaves the row in the list",
+    async (action, destination, input) => {
+      const moved = makeThread(input);
+      state.shells = [moved, neighbor()];
+      const row = watchDismissals(moved);
+
+      expect(await useThreadListActions().moveThread(moved, destination)).toBe(true);
+      expect(actions()).toContain(action);
+      // No swipe off screen and no collapse: the row waits where it is for its new place.
+      expect(row.dismissals).toBe(0);
+      row.unregister();
+    },
+  );
+
+  it.each(["settleThread", "unpinThread", "unsettleThread", "unsnoozeThread"] as const)(
+    "%s from the row itself still dismisses the row",
+    async (handler) => {
+      const thread = makeThread();
+      const row = watchDismissals(thread);
+
+      expect(await useThreadListActions()[handler](thread)).toBe(true);
+      expect(row.dismissals).toBe(1);
+      row.unregister();
+    },
+  );
+
+  describe("into an Active ordered by time", () => {
+    it.each([
+      ["the Working shelf", { workingShelfEnabled: true }],
+      ["the shelf's default", {}],
+      ["longest waiting", { workingShelfEnabled: false, inboxSortOrder: "longest_waiting" }],
+    ] as const)("changes only the thread's state under %s", async (_name, preferences) => {
+      state.preferences = preferences;
+      const cases = [
+        ["unpin", { pinnedAt: PINNED_AT, pinOrderKey: "m" }],
+        ["unsettle", { settledOverride: "settled" }],
+        ["unsnooze", { snoozedUntil: "2099-01-01T09:00:00.000Z" }],
+      ] as const;
+      for (const [action, input] of cases) {
+        const moved = makeThread(input);
+        state.shells = [moved, neighbor({ activeOrderKey: "g" })];
+        state.requests = [];
+
+        expect(
+          await useThreadListActions().moveThread(moved, {
+            section: "active",
+            targetId: "primary:neighbor",
+            placement: "after",
+          }),
+        ).toBe(true);
+        // No order key: Active sorts by time and would ignore it.
+        expect(actions()).toEqual([action]);
+      }
+      expect(state.heldOrders).toEqual([]);
+      expect(state.dropBusy).toBe(false);
+    });
+
+    it("does nothing for a move within Active", async () => {
+      state.preferences = { workingShelfEnabled: true };
+      const moved = makeThread({ activeOrderKey: "m" });
+      state.shells = [moved, neighbor({ activeOrderKey: "g" })];
+      const { moveThread } = useThreadListActions();
+
+      expect(await moveThread(moved, "up")).toBe(false);
+      expect(
+        await moveThread(moved, {
+          section: "active",
+          targetId: "primary:neighbor",
+          placement: "before",
+        }),
+      ).toBe(false);
+      expect(state.requests).toEqual([]);
+      expect(state.dropBusy).toBe(false);
+    });
+
+    it("still reorders Pinned", async () => {
+      state.preferences = { workingShelfEnabled: true };
+      const moved = makeThread({ pinnedAt: PINNED_AT, pinOrderKey: "m" });
+      state.shells = [moved, neighbor({ pinnedAt: PINNED_AT, pinOrderKey: "g" })];
+
+      expect(await useThreadListActions().moveThread(moved, "up")).toBe(true);
+      expect(actions()).toEqual(["reorderPin"]);
+    });
+
+    it("orders Active by hand until the preferences have loaded", async () => {
+      state.preferences = null;
+      const moved = makeThread({ pinnedAt: PINNED_AT, pinOrderKey: "m" });
+      state.shells = [moved, neighbor({ activeOrderKey: "g" })];
+
+      expect(await useThreadListActions().moveThread(moved, INTO_ACTIVE)).toBe(true);
+      expect(actions()).toEqual(["unpin", "reorderActive"]);
+    });
+  });
+
+  it.each([
+    ["Active", INTO_ACTIVE, { pinnedAt: PINNED_AT, pinOrderKey: "m" }, {}],
+    [
+      "Pinned",
+      { section: "pinned", targetId: null, placement: "before" },
+      {},
+      { pinnedAt: PINNED_AT, pinOrderKey: "g" },
+    ],
+  ] as const)(
+    "holds the dropped row's slot in %s while its state change lands",
+    async (_name, destination, input, neighborInput) => {
+      const moved = makeThread(input);
+      state.shells = [moved, neighbor(neighborInput)];
+
+      expect(await useThreadListActions().moveThread(moved, destination)).toBe(true);
+      // The hold names the row that joins, so its arrival does not read as a foreign change.
+      expect(state.heldOrders).toEqual([expect.objectContaining({ arriving: "primary:thread" })]);
+    },
+  );
+
+  it("names no arriving row for a move within a section", async () => {
+    const moved = makeThread({ pinnedAt: PINNED_AT, pinOrderKey: "m" });
+    state.shells = [moved, neighbor({ pinnedAt: PINNED_AT, pinOrderKey: "g" })];
+
+    expect(await useThreadListActions().moveThread(moved, "up")).toBe(true);
+    expect(state.heldOrders).toHaveLength(1);
+    expect(state.heldOrders[0]?.arriving).toBeUndefined();
   });
 });

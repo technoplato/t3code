@@ -27,6 +27,11 @@ export function usePendingThreadOrder() {
   return useAtomValue(pendingThreadOrderAtom);
 }
 
+// A drop from another section holds the order until its row arrives with its new key. The
+// commands have succeeded by then, so the row is due at once; without a limit, a row that
+// another change keeps out would hold every later move.
+const PENDING_ARRIVAL_LIMIT_MS = 5_000;
+
 let refreshPendingOrder: (() => void) | undefined;
 // Only one hold is live at a time; starting another tears down the previous
 // hold's subscriptions so its clocks and listeners do not outlive it.
@@ -42,6 +47,7 @@ export function beginPendingThreadOrder(pending: PendingThreadOrder) {
   // A timed wake can change section membership without a shell event, so the
   // hold also re-checks on each minute and at the next snooze expiry.
   let wake: { readonly atMs: number | null; readonly unsubscribe: () => void } | null = null;
+  let arrivalLimit: ReturnType<typeof setTimeout> | undefined;
   const armWake = (atMs: number | null) => {
     if (wake?.atMs === atMs) return;
     wake?.unsubscribe();
@@ -51,6 +57,7 @@ export function beginPendingThreadOrder(pending: PendingThreadOrder) {
     for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
     wake?.unsubscribe();
     wake = null;
+    clearTimeout(arrivalLimit);
   };
   const cancel = () => {
     if (refreshPendingOrder !== refresh) return;
@@ -104,6 +111,9 @@ export function beginPendingThreadOrder(pending: PendingThreadOrder) {
       if (current !== null) {
         appAtomRegistry.set(pendingThreadOrderAtom, { ...current, commandsComplete: true });
         refresh();
+        if (current.arriving !== undefined && refreshPendingOrder === refresh) {
+          arrivalLimit = setTimeout(cancel, PENDING_ARRIVAL_LIMIT_MS);
+        }
       }
     },
     cancel,

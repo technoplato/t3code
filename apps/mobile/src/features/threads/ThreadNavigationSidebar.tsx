@@ -12,12 +12,19 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_LIST_ROW_LAYOUT } from "./threadListAnimations";
 import { useAtomValue } from "@effect/atom-react";
-import { useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
-import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
+import { useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  Platform,
+  StyleSheet,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
+import { useNativeGesture } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { FLOATING_TABS } from "../layout/workspace/floating-workspace-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,6 +50,7 @@ import {
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import { ThreadListDragBoundary } from "./ThreadListDragBoundary";
 import { useThreadListV2 } from "./useThreadListV2";
 import { useSidebarRowThreadKey } from "./useSidebarRowThreadKey";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
@@ -366,10 +374,37 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     openSwipeableRef.current?.close();
   };
   const onFabScroll = useFabScroll();
+  const listRef = useRef<LegendListRef>(null);
+  // The top inset this list reports as its own. On iOS UIKit insets it instead
+  // (`contentInsetAdjustmentBehavior="automatic"`), which scroll events leave out; the drag
+  // boundary learns that part from where the list rests.
+  const [listInsetTop, setListInsetTop] = useState(0);
+  const handleListScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    onFabScroll?.(event);
+    setListInsetTop(Math.max(0, event.nativeEvent.contentInset?.top ?? 0));
+  };
   const { swipeEnabled, scrollGateHandlers } = useSwipeableScrollGate({
-    onScroll: onFabScroll,
+    onScroll: handleListScroll,
     onScrollBeginDrag: handleScrollBeginDrag,
   });
+  const withThreadDrag = (list: ReactElement) => (
+    <ThreadListDragBoundary
+      listRef={listRef}
+      items={listItems}
+      scrollGesture={sidebarScrollGesture}
+      estimatedItemSize={64}
+      headerSize={0}
+      paddingTop={6}
+      contentInsetTop={listInsetTop}
+      disabled={props.searchQuery.trim().length > 0 || multiSelect.selectionMode}
+      activeTimeOrdered={activeTimeOrdered}
+      pane="sidebar"
+      onMoveThread={moveThread}
+      onDragStart={handleScrollBeginDrag}
+    >
+      {list}
+    </ThreadListDragBoundary>
+  );
   const visibleThreadKeys = useMemo(
     () =>
       threadListV2Items.flatMap((item) =>
@@ -681,8 +716,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
         {header}
         <View className="flex-1">
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
-            <GestureDetector gesture={sidebarScrollGesture}>
+            {withThreadDrag(
               <AnimatedLegendList
+                ref={listRef}
                 renderScrollComponent={NativeScrollView}
                 itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                 data={listItems}
@@ -696,6 +732,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 automaticallyAdjustsScrollIndicatorInsets
                 // The column lays the list under its bar, glass or solid; UIKit insets it past both.
                 contentInsetAdjustmentBehavior="automatic"
+                // A thread drag scrolls the list up to that inset, which is above offset zero:
+                // without this, React Native stops a scroll it is asked for at zero.
+                scrollToOverflowEnabled
                 contentContainerStyle={[
                   styles.threadListContent,
                   {
@@ -711,8 +750,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
                 ListEmptyComponent={listEmpty}
-              />
-            </GestureDetector>
+              />,
+            )}
           </SwipeableScrollGateProvider>
           <ThreadUndoNotice visible={props.visible && !multiSelect.selectionMode} />
           <ThreadSelectionActionBar
@@ -753,9 +792,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
           <View className="flex-1 items-center justify-center">{listEmpty}</View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
-            <GestureDetector gesture={sidebarScrollGesture}>
-              {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- The Android sidebar has no native header to register with. */}
+            {withThreadDrag(
+              // oxlint-disable-next-line t3code/require-registered-list-scroll -- The Android sidebar has no native header to register with.
               <AnimatedLegendList
+                ref={listRef}
                 itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                 data={listItems}
                 drawDistance={500}
@@ -779,8 +819,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
                 ListEmptyComponent={listEmpty}
-              />
-            </GestureDetector>
+              />,
+            )}
           </SwipeableScrollGateProvider>
         )}
       </View>

@@ -38,7 +38,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { NativeScrollViewMarker as ScrollViewMarker } from "../../native/NativeScrollViewMarker";
-import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
+import { useNativeGesture } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -63,6 +63,7 @@ import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspace
 import { useThreadSearch } from "../../state/queries";
 import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { useThreadListSearchMatches } from "../threads/useThreadListSearchMatches";
+import { ThreadListDragBoundary } from "../threads/ThreadListDragBoundary";
 import { useThreadListV2 } from "../threads/useThreadListV2";
 import { useSidebarRowThreadKey } from "../threads/useSidebarRowThreadKey";
 import { useThreadListNow } from "../threads/use-thread-list-now";
@@ -291,6 +292,8 @@ export function HomeScreen(props: HomeScreenProps) {
   };
   const onFabScroll = useFabScroll();
   const listRef = useRef<LegendListRef>(null);
+  // The filters above the rows are part of the scroll content; a drag measures rows below them.
+  const [listHeaderSize, setListHeaderSize] = useState(0);
   const searchMode = workspace?.state.tabs.threads.searchMode;
   const restoredOffset = workspace?.state.tabs.threads.scrollOffset;
   useSearchScrollRestoration(searchMode, () => {
@@ -336,6 +339,11 @@ export function HomeScreen(props: HomeScreenProps) {
     onScroll: handleListScroll,
     onScrollBeginDrag: handleScrollBeginDrag,
   });
+  // A thread drag takes the touch from the list, which can miss the lift it tracks touches by.
+  const handleThreadDragEnd = () => {
+    swipeRowActivation.resetTouches();
+    activateVisibleRows(listRef.current?.getState().data ?? []);
+  };
 
   const { projects, selectedEnvironmentId, projectGroupingMode } = props;
   const projectScopes = useMemo(
@@ -832,10 +840,25 @@ export function HomeScreen(props: HomeScreenProps) {
       <ScreenContent surface="screen">
         <View className={cn("flex-1", Platform.OS !== "android" && contentBackground)}>
           <SwipeableScrollGateProvider enabled={swipeEnabled} activation={swipeRowActivation}>
-            <GestureDetector gesture={homeScrollGesture}>
+            <ThreadListDragBoundary
+              listRef={listRef}
+              items={threadListV2Items}
+              scrollGesture={homeScrollGesture}
+              estimatedItemSize={ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT}
+              headerSize={listHeaderSize}
+              paddingTop={0}
+              contentInsetTop={contentTopInset}
+              disabled={hasSearchQuery || multiSelect.selectionMode}
+              activeTimeOrdered={activeTimeOrdered}
+              pane={sidebarSurface ? "sidebar" : "screen"}
+              onMoveThread={handleMoveThread}
+              onDragStart={handleScrollBeginDrag}
+              onDragEnd={handleThreadDragEnd}
+            >
               <AnimatedLegendList
                 itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                 ref={listRef}
+                onMetricsChange={(metrics) => setListHeaderSize(metrics.headerSize)}
                 onLoad={() => {
                   settleLaunchSplashHomeRows();
                   activateVisibleRows(threadListV2Items);
@@ -898,7 +921,7 @@ export function HomeScreen(props: HomeScreenProps) {
                           (Platform.OS === "android" ? fabClearance : 88)),
                 }}
               />
-            </GestureDetector>
+            </ThreadListDragBoundary>
           </SwipeableScrollGateProvider>
         </View>
       </ScreenContent>

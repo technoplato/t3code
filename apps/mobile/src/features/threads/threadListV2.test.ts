@@ -1061,6 +1061,87 @@ describe("pending mobile thread moves", () => {
     expect(reconcilePendingThreadOrder(confirmed, rows)).toBeNull();
   });
 
+  describe("a row dropped in from another section", () => {
+    function crossSectionFixture() {
+      const { rows } = fixture();
+      const pinned = makeThread({
+        id: ThreadId.make("p"),
+        title: "match",
+        createdAt: "2026-06-01T09:00:00.000Z",
+        pinnedAt: "2026-06-01T09:00:00.000Z",
+        pinOrderKey: "m",
+      });
+      const active = getThreadListV2OrderedSection({ threads: rows, section: "active", now: NOW });
+      const pending = createPendingThreadOrder({
+        section: "active",
+        ordered: active,
+        movedId: `${pinned.environmentId}:p`,
+        direction: {
+          section: "active",
+          targetId: `${active[1]!.environmentId}:${active[1]!.id}`,
+          placement: "before",
+        },
+        assignments: [{ id: `${pinned.environmentId}:p`, orderKey: "k" }],
+      });
+      const ordered = (threads: EnvironmentThreadShell[]) =>
+        getThreadListV2OrderedSection({ threads, section: "active", now: NOW });
+      // The unpin lands first, with the key of the row's last stay in Active, or none.
+      const unpinned = { ...pinned, pinnedAt: null, pinOrderKey: null };
+      const keyed = { ...unpinned, activeOrderKey: "k" };
+      return { rows, pinned, pending, ordered, unpinned, keyed };
+    }
+
+    it("holds its slot from the drop until its own key lands", () => {
+      const { rows, pinned, pending, ordered, unpinned, keyed } = crossSectionFixture();
+      expect(pending.arriving).toBe(`${pinned.environmentId}:p`);
+      const desired = ["a", "p", "b", "c"];
+
+      // Not there yet: the hold stays, and Active shows as it was.
+      expect(reconcilePendingThreadOrder(pending, ordered([...rows, pinned]))).toBe(pending);
+      expect(layout([...rows, pinned], pending)).toEqual(["p", "a", "b", "c"]);
+
+      // It joins Active before its order key is written: it shows in its slot, not where
+      // its old key would sort it.
+      const arrived = reconcilePendingThreadOrder(pending, ordered([...rows, unpinned]));
+      expect(arrived).toBe(pending);
+      expect(layout([...rows, unpinned], pending)).toEqual(desired);
+      expect(layout([...rows, unpinned], null)).not.toEqual(desired);
+
+      // Its key lands, and the commands finish: the hold lets go.
+      const confirmed = reconcilePendingThreadOrder(pending, ordered([...rows, keyed]))!;
+      expect(confirmed.confirmed.has(pending.arriving!)).toBe(true);
+      expect(layout([...rows, keyed], confirmed)).toEqual(desired);
+      expect(
+        reconcilePendingThreadOrder(
+          { ...confirmed, commandsComplete: true },
+          ordered([...rows, keyed]),
+        ),
+      ).toBeNull();
+    });
+
+    it("releases for any other change to the section", () => {
+      const { rows, pending, ordered, unpinned, keyed } = crossSectionFixture();
+      const stranger = makeThread({ id: ThreadId.make("new"), title: "new" });
+      // Another row joins instead of, or as well as, the dropped one.
+      expect(reconcilePendingThreadOrder(pending, ordered([...rows, stranger]))).toBeNull();
+      expect(
+        reconcilePendingThreadOrder(pending, ordered([...rows, unpinned, stranger])),
+      ).toBeNull();
+      // A row leaves.
+      expect(reconcilePendingThreadOrder(pending, ordered(rows.slice(1)))).toBeNull();
+      // Another row's key changes.
+      expect(
+        reconcilePendingThreadOrder(
+          pending,
+          ordered([{ ...rows[0]!, activeOrderKey: "zz" }, ...rows.slice(1), unpinned]),
+        ),
+      ).toBeNull();
+      // The dropped row leaves again after its key was confirmed.
+      const confirmed = reconcilePendingThreadOrder(pending, ordered([...rows, keyed]))!;
+      expect(reconcilePendingThreadOrder(confirmed, ordered(rows))).toBeNull();
+    });
+  });
+
   it("preserves the hold for activity but releases for a reopened sort anchor", () => {
     const { rows, pending } = fixture();
     expect(

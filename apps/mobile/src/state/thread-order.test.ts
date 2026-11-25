@@ -109,6 +109,36 @@ describe("shared mobile pending move", () => {
     next.cancel();
   });
 
+  it("lets go of a slot whose dropped row never arrives", () => {
+    vi.useFakeTimers();
+    try {
+      const { rows } = fixture();
+      // A row dropped in from Pinned: it is not in Active when the hold begins.
+      const move = beginPendingThreadOrder(
+        createPendingThreadOrder({
+          section: "active",
+          ordered: rows,
+          movedId: "env:p",
+          direction: { section: "active", targetId: "env:a", placement: "before" },
+          assignments: [{ id: "env:p", orderKey: "aa" }],
+        }),
+      );
+      // Before the commands finish, the hold has no limit.
+      vi.advanceTimersByTime(60_000);
+      expect(getPendingThreadOrder()).not.toBeNull();
+
+      move.complete();
+      vi.advanceTimersByTime(4_999);
+      expect(getPendingThreadOrder()).not.toBeNull();
+      // Another change kept the row out: without a limit this hold would refuse every move.
+      vi.advanceTimersByTime(1);
+      expect(getPendingThreadOrder()).toBeNull();
+      expect(move.isPending()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops remaining writes when a canonical membership change invalidates the move", () => {
     const { rows, start } = fixture();
     const move = start();

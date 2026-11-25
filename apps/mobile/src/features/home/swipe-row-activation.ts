@@ -26,6 +26,18 @@ export function createSwipeRowActivation() {
       if (listTouches.size > 0) pendingKeys = keys;
       else apply(keys);
     },
+    /**
+     * Forgets every finger. A gesture that takes the touch from the list, such as a thread
+     * drag, can end without the list hearing that its fingers lifted; rows scrolled in during
+     * it would then wait for a lift that already happened.
+     */
+    resetTouches() {
+      listTouches.clear();
+      if (pendingKeys === null) return;
+      const keys = pendingKeys;
+      pendingKeys = null;
+      apply(keys);
+    },
     trackTouches(started: ReadonlyArray<string>, onScreen: ReadonlyArray<string>) {
       for (const id of started) listTouches.add(id);
       for (const id of listTouches) if (!onScreen.includes(id)) listTouches.delete(id);
