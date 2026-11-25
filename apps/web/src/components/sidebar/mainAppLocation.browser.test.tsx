@@ -1,5 +1,11 @@
-import { EnvironmentId, MessageId, ThreadId, type AssistantCitation } from "@t3tools/contracts";
-import type { AnyRouter } from "@tanstack/react-router";
+import {
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ThreadId,
+  type AssistantCitation,
+} from "@t3tools/contracts";
+import { useLocation, type AnyRouter } from "@tanstack/react-router";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -9,6 +15,12 @@ import {
   assistantCitationNavigation,
 } from "../../lib/assistantCitationNavigation";
 import {
+  THREAD_NAVIGATION_HISTORY_STORAGE_KEY,
+  useRecordThreadVisit,
+  type ThreadVisit,
+} from "../../threadNavigationHistory";
+import {
+  isAppModalPage,
   startMainAppLocationTracking,
   useCloseAppModal,
   useNavigateToMainApp,
@@ -41,6 +53,28 @@ function ReturnControls() {
       </button>
     </>
   );
+}
+
+// Records the route's thread as the thread view does; the test router has no thread params.
+function VisitRecorder() {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const [environmentId, threadId] = pathname.split("/").slice(1);
+  useRecordThreadVisit(
+    environmentId && threadId && !isAppModalPage(pathname)
+      ? {
+          environmentId: EnvironmentId.make(environmentId),
+          threadId: ThreadId.make(threadId),
+          projectId: ProjectId.make("project-one"),
+          title: threadId,
+        }
+      : null,
+    true,
+  );
+  return null;
+}
+
+function storedVisits(): ReadonlyArray<ThreadVisit> {
+  return JSON.parse(localStorage.getItem(THREAD_NAVIGATION_HISTORY_STORAGE_KEY) ?? "[]");
 }
 
 // The tracker records on onResolved, which the router emits only once React commits the page.
@@ -107,5 +141,39 @@ describe("main app return location", () => {
     await vi.waitFor(() => expect(router.state.location.pathname).toBe(otherThreadPath));
     router.history.forward();
     await vi.waitFor(() => expect(router.state.location.pathname).toBe(otherThreadPath));
+  });
+
+  it("does not count the thread that closing Settings steps back over as a visit", async () => {
+    const threadTwoPath = "/environment-one/thread-two";
+    const visitedThreads = () => storedVisits().map((visit) => visit.threadId);
+    localStorage.removeItem(THREAD_NAVIGATION_HISTORY_STORAGE_KEY);
+    using _history = {
+      [Symbol.dispose]: () => localStorage.removeItem(THREAD_NAVIGATION_HISTORY_STORAGE_KEY),
+    };
+    await using screen = await render(
+      <>
+        <VisitRecorder />
+        <ReturnControls />
+      </>,
+      { router: THREAD_PATH },
+    );
+    const router = screen.router!;
+    using _tracking = { [Symbol.dispose]: startMainAppLocationTracking(router) };
+    await vi.waitFor(() => expect(visitedThreads()).toEqual(["thread-one"]));
+    await settled(router, router.navigate({ href: threadTwoPath }));
+    await vi.waitFor(() => expect(visitedThreads()).toEqual(["thread-two", "thread-one"]));
+    const beforeSettings = storedVisits();
+
+    await settled(router, router.navigate({ href: "/settings/general" }));
+    using go = vi.spyOn(router.history, "go");
+    await userEvent.click(screen.getByRole("button", { name: "Close modal" }));
+    await vi.waitFor(() => expect(router.state.location.pathname).toBe(threadTwoPath));
+    // Closing went back to thread one's entry on its way to thread two.
+    expect(go).toHaveBeenCalledExactlyOnceWith(-2);
+
+    // A visit that starts later is recorded later, so by then thread one's would have been too.
+    await settled(router, router.navigate({ href: "/environment-one/thread-three" }));
+    await vi.waitFor(() => expect(visitedThreads()[0]).toBe("thread-three"));
+    expect(storedVisits().slice(1)).toEqual(beforeSettings);
   });
 });

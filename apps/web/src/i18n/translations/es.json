@@ -12107,6 +12107,8 @@
       "v": "v"
     }
   ],
+  "1b3c661cb0d03101": "Historial",
+  "04459b605896b243": "Aún no hay historial de hilos",
   "e7f35f60e6229cf5": "App de escritorio",
   "77be1b7e2a1d3d31": "{count, plural, one {¿Actualizar {count} máquina?} other {¿Actualizar {count} máquinas?}}",
   "e4892b21e88abb60": "{count, plural, one {{count} actualización de proveedor} other {{count} actualizaciones de proveedores}}",

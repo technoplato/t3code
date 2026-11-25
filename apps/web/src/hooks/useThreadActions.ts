@@ -55,6 +55,7 @@ import { usePreviewMiniPlayerStore } from "../previewMiniPlayerStore";
 import { clearThreadPreviewState } from "../previewStateStore";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { removeThreadVisit } from "../threadNavigationHistory";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -501,6 +502,7 @@ export function useThreadActions() {
         ]) {
           releaseComposerDraftUploads(ref);
           clearComposerDraftForThread(ref);
+          removeThreadVisit(ref);
         }
         expireThreadUndos(target, [...LIST_PLACEMENT_UNDO_KINDS, "archive"]);
         refreshArchivedThreadsForEnvironment(target.environmentId);
@@ -638,6 +640,7 @@ export function useThreadActions() {
     refreshArchivedThreadsForEnvironment(threadRef.environmentId);
     releaseComposerDraftUploads(threadRef);
     clearComposerDraftForThread(threadRef);
+    removeThreadVisit(threadRef);
     // The server deletes the thread's side chats with it.
     for (const entry of threads) {
       if (entry.lineage.sideChat !== true || entry.lineage.parentThreadId !== threadRef.threadId) {
@@ -646,6 +649,7 @@ export function useThreadActions() {
       const sideChatRef = scopeThreadRef(threadRef.environmentId, entry.id);
       releaseComposerDraftUploads(sideChatRef);
       clearComposerDraftForThread(sideChatRef);
+      removeThreadVisit(sideChatRef);
     }
     clearProjectDraftThreadById(
       scopeProjectRef(threadRef.environmentId, thread.projectId),

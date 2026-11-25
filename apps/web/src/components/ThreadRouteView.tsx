@@ -12,6 +12,7 @@ import { BackgroundThreadContext, HiddenThreadContext } from "./chat/backgroundT
 import { SidebarInset } from "./ui/sidebar";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import { removeThreadVisit, useRecordThreadVisit } from "../threadNavigationHistory";
 import {
   useEnvironmentThreadRefs,
   useAnyEnvironmentHiding,
@@ -140,7 +141,7 @@ export function ThreadRouteView({
   });
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears pending file drops and navigates the router home once a server thread is confirmed missing
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears pending file drops and the history entry, and navigates the router home, once a server thread is confirmed missing
   useEffect(() => {
     if (target.kind !== "server" || !bootstrapComplete) {
       return;
@@ -148,6 +149,7 @@ export function ThreadRouteView({
     if (renderState === "missing") {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
+      removeThreadVisit(target.threadRef);
       if (environmentHasAnyThreads && !background) {
         void navigate({ to: "/", replace: true });
       }
@@ -223,6 +225,20 @@ export function ThreadRouteView({
       />
     );
   }
+
+  // The detail stands in for a thread the shell leaves out; both carry its title and project.
+  const visitedThread = serverThreadShell ?? unlistedThread;
+  useRecordThreadVisit(
+    serverThreadRef !== null && visitedThread !== null
+      ? {
+          environmentId: serverThreadRef.environmentId,
+          threadId: serverThreadRef.threadId,
+          projectId: visitedThread.projectId,
+          title: visitedThread.title,
+        }
+      : null,
+    !background && view !== null,
+  );
 
   return (
     <SidebarInset
