@@ -1600,6 +1600,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
               }
               maintainScrollAtEndThreshold={1}
               onScroll={handleScroll}
+              // Near the top, earlier turns load by themselves. Not while the list restores a
+              // position or lands a linked message, whose place the new rows would move.
+              onStartReached={() => {
+                if (restoringThreadPosition || jump !== null || !historyControls?.hasMoreHistory) {
+                  return;
+                }
+                if (historyControls.loading || historyControls.error !== null) return;
+                historyControls.onLoadEarlier();
+              }}
+              onStartReachedThreshold={1}
               onItemSizeChanged={scheduleMinimapRefresh}
               onMetricsChange={scheduleMinimapRefresh}
               // Keyboard scrolling only moves the focused element; F6 and clicks land here.

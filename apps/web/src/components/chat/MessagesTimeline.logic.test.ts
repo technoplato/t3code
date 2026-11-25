@@ -5235,7 +5235,7 @@ describe("resolveAdjacentMessageNavigationTarget", () => {
         positionAtIndex: () => undefined,
         pendingRowId: "user-2",
       }),
-    ).toEqual({ kind: "row", rowIndex: 3, rowId: "assistant-1" });
+    ).toEqual({ kind: "row", earlierCount: 1, rowIndex: 3, rowId: "assistant-1" });
   });
 });
 

@@ -115,7 +115,11 @@ import {
   renderCodexInlineDirectivesAsMarkdown,
   splitCodexArtifactTemplateMarkdown,
 } from "@t3tools/shared/codexMarkdownDirectives";
-import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+import {
+  CHAT_LIST_ANCHOR_OFFSET,
+  createChatListHistoryPaging,
+  resolveChatListAnchoredEndSpace,
+} from "@t3tools/shared/chatList";
 import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
@@ -279,8 +283,16 @@ import {
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { landThreadFeedJump, type ThreadFeedJumpLanding } from "./thread-feed-jump";
-import { readThreadFeedView, threadFeedEntryMatchesJumpId } from "./thread-feed-view";
-import { createThreadMessageStepper, type ThreadMessageStepper } from "./thread-message-step";
+import {
+  readThreadFeedView,
+  threadFeedEntryMatchesJumpId,
+  threadFeedViewportStart,
+} from "./thread-feed-view";
+import {
+  createThreadMessageStepper,
+  threadMessageStepCandidates,
+  type ThreadMessageStepControl,
+} from "./thread-message-step";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
@@ -411,8 +423,8 @@ export interface ThreadFeedProps {
    */
   readonly jump?: { readonly messageId: MessageId; readonly from: number | null } | null;
   readonly onJumpedToMessage?: () => void;
-  /** Receives the stepper that moves the feed from one message to the next. */
-  readonly messageStepRef?: RefObject<ThreadMessageStepper | null>;
+  /** Receives the steps that move the feed from one message to the next. */
+  readonly messageStepRef?: RefObject<ThreadMessageStepControl | null>;
   /** Receives the reader of the rows that show, for the client view report. */
   readonly viewReaderRef?: RefObject<(() => ClientViewContent) | null>;
   readonly contentInsetEndAdjustment: SharedValue<number>;
@@ -3367,6 +3379,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const listContentInsetTop = usesNativeAutomaticInsets ? anchorTopInset : 0;
   // One stepper for the feed's life: the row it landed on outlives a change of insets.
   const [messageStepper] = useState(createThreadMessageStepper);
+  // Loads earlier history when steps back reach the start of what the feed has loaded.
+  const [messageStepPaging] = useState(createChatListHistoryPaging);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the stepper the insets and motion setting its next step lands with
   useLayoutEffect(() => {
     messageStepper.setContext(() => ({
@@ -3376,7 +3390,40 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       animated: !reduceMotion,
     }));
   }, [messageStepper, listRef, anchorTopInset, listContentInsetTop, reduceMotion]);
-  useImperativeHandle(props.messageStepRef, () => messageStepper, [messageStepper]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the history paging the list it reads when a step runs into the loaded start
+  useLayoutEffect(() => {
+    messageStepPaging.setHost({
+      // The first row changes only when history lands above it, never as a reply streams in.
+      headId: () => listRef.current?.getState().data[0]?.id ?? "__empty__",
+      hasEarlier: (anchorRowId) => {
+        const list = listRef.current;
+        const state = list?.getState();
+        const index = state?.indexByKey(anchorRowId);
+        if (!list || !state || index === undefined) return undefined;
+        if (threadFeedViewportStart(list) === undefined) return undefined;
+        return threadMessageStepCandidates(state.data as ReadonlyArray<ThreadFeedRow>).some(
+          (candidate) => candidate.rowIndex < index,
+        );
+      },
+      stepFrom: (anchorRowId) => messageStepper.stepFrom(anchorRowId).kind === "row",
+      onStepped: () => void Haptics.selectionAsync(),
+      onExhausted: () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid),
+      requestFrame: (callback) => requestAnimationFrame(callback),
+    });
+  }, [messageStepPaging, messageStepper, listRef]);
+  useImperativeHandle(
+    props.messageStepRef,
+    () => ({
+      step: (direction, request = {}) =>
+        messageStepPaging.afterStep(
+          direction,
+          messageStepper.step(direction, request),
+          request.repeat === true,
+        ),
+      settle: messageStepper.settle,
+    }),
+    [messageStepper, messageStepPaging],
+  );
   useImperativeHandle(
     props.viewReaderRef,
     () => () => readThreadFeedView(listRef.current, { anchorTopInset, bottomContentInset }),
@@ -4097,7 +4144,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // the person's finger.
   const handleUserScroll = () => {
     messageStepper.clearLanded();
+    messageStepPaging.cancel();
     jumpLanding.current?.release();
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the history paging each committed history state, so a tapped step waiting on a page takes it once it lands
+  useLayoutEffect(() => {
+    messageStepPaging.setHistory(props.historyControls ?? null, feedThreadKey);
+  }, [messageStepPaging, props.historyControls, feedThreadKey]);
+  // Near the top, earlier turns load by themselves, whether reached by hand or by steps. Not while
+  // the feed opens or lands a linked message, whose position the new rows would move.
+  const handleStartReached = () => {
+    const history = props.historyControls;
+    if (settling || jumpReady || !history?.hasMoreHistory) return;
+    if (history.loading || history.error !== null) return;
+    messageStepPaging.prefetch();
   };
 
   const handleViewportLayout = (event: LayoutChangeEvent) => {
@@ -4666,6 +4726,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onItemSizeChanged={handleItemSizeChanged}
             onScroll={handleScroll}
             onUserScroll={handleUserScroll}
+            onStartReached={handleStartReached}
+            onStartReachedThreshold={1}
             scrollEventThrottle={16}
             ListHeaderComponent={
               <>

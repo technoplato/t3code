@@ -162,9 +162,9 @@ import {
 } from "./threadMessageJump";
 import { threadFeedEntryMatchesJumpId } from "./thread-feed-view";
 import type {
+  ThreadMessageStepControl,
   ThreadMessageStepDirection,
-  ThreadMessageStepSender,
-  ThreadMessageStepper,
+  ThreadMessageStepRequest,
 } from "./thread-message-step";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import type { ClientViewContent } from "@t3tools/client-runtime/client-view";
@@ -550,7 +550,7 @@ function ThreadDetailBody(
     return () => cancelAnimationFrame(frame);
   }, [editingRunId, composerEditorRef]);
   const listRef = useRef<LegendListRef>(null);
-  const messageStepRef = useRef<ThreadMessageStepper | null>(null);
+  const messageStepRef = useRef<ThreadMessageStepControl | null>(null);
   const feedViewReaderRef = useRef<(() => ClientViewContent) | null>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   // Aborted when this thread's body unmounts, so async work started for it
@@ -1490,25 +1490,33 @@ function ThreadDetailBody(
     });
   };
 
-  const handleScrollToEnd = () => {
-    void Haptics.selectionAsync();
+  const scrollToEnd = () => {
     void scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false }).catch(() => {
       freeze.set(false);
     });
   };
+  const handleScrollToEnd = () => {
+    void Haptics.selectionAsync();
+    scrollToEnd();
+  };
 
   const showScrollToEndButton = !props.draftMode && contentPresentationKind === "ready" && !isAtEnd;
+  // Leaves feedback to its caller: the step arrows pace their own haptics while held.
   const handleStepMessage = (
     direction: ThreadMessageStepDirection,
-    sender: ThreadMessageStepSender = "any",
+    request?: ThreadMessageStepRequest,
   ) => {
-    const result = messageStepRef.current?.step(direction, sender) ?? "none";
-    if (result === "end") handleScrollToEnd();
-    if (result === "row") void Haptics.selectionAsync();
+    const outcome = messageStepRef.current?.step(direction, request) ?? "none";
+    if (outcome === "end") scrollToEnd();
+    return outcome;
   };
+  const handleSettleMessageStep = () => messageStepRef.current?.settle();
   useHardwareKeyboardCommand(
     props.draftMode ? NO_KEYBOARD_COMMANDS : MESSAGE_STEP_KEYBOARD_COMMANDS,
-    (command) => handleStepMessage(command === "previousMessage" ? "previous" : "next"),
+    (command) => {
+      const outcome = handleStepMessage(command === "previousMessage" ? "previous" : "next");
+      if (outcome === "row" || outcome === "end") void Haptics.selectionAsync();
+    },
   );
   const { themeAppearance } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
@@ -1739,6 +1747,7 @@ function ThreadDetailBody(
                     showScrollToEnd={showScrollToEndButton}
                     onScrollToEnd={handleScrollToEnd}
                     onStepMessage={handleStepMessage}
+                    onSettleMessageStep={handleSettleMessageStep}
                     agents={agentsSegment}
                     onOpenAgents={() => {
                       Keyboard.dismiss();

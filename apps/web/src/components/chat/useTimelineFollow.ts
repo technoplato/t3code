@@ -1,6 +1,11 @@
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { type MessageId, type RunId } from "@t3tools/contracts";
-import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
+import {
+  CHAT_LIST_ANCHOR_OFFSET,
+  createChatListHistoryPaging,
+  type ChatListHistory,
+  type ChatListStepResult,
+} from "@t3tools/shared/chatList";
 import { Debouncer } from "@tanstack/react-pacer";
 import {
   type SetStateAction,
@@ -164,6 +169,8 @@ interface TimelineFollowInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly timelineAnchorMessageId: MessageId | null;
   readonly setTimelineAnchor: Dispatch<SetStateAction<TimelineAnchor>>;
+  /** Earlier history a step back loads when it reaches the start of what is loaded. */
+  readonly historyControls?: ChatListHistory | undefined;
 }
 
 /**
@@ -186,6 +193,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     timelineEntries,
     timelineAnchorMessageId,
     setTimelineAnchor,
+    historyControls,
   } = input;
   const [visitState, setVisit] = useState<TimelineFollowVisit>({
     threadKey: activeThreadKey,
@@ -227,6 +235,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     );
   };
   const visitScrollRef = useRef<VisitScrollState | null>(null);
+  // Loads earlier history when steps back reach the start of what the timeline has loaded.
+  const [historyPaging] = useState(createChatListHistoryPaging);
   /** Only from handlers: the bookkeeping of the visit they run in. */
   const visitScroll = () => {
     if (visitScrollRef.current?.visit !== visit) {
@@ -349,19 +359,20 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     if (grew && readCurrentFollow().mode === "following") scrollToEndStable();
   }, [composerTimelineInset, readCurrentFollow, scrollToEndStable]);
 
-  const navigateToAdjacentMessage = (direction: "previous" | "next"): boolean => {
+  const stepToAdjacentMessage = (direction: "previous" | "next"): ChatListStepResult => {
     const list = legendListRef.current;
     const state = list?.getState?.();
     const viewport = list?.getScrollableNode?.();
-    if (!list || !state || !viewport) return false;
+    if (!list || !state || !viewport) return { kind: "none" };
     const rows = state.data as ReadonlyArray<MessagesTimelineRow>;
-    if (deriveNavigableMessageRowIndices(rows).length === 0) return false;
+    const navigable = deriveNavigableMessageRowIndices(rows);
 
     const scroll = resolveTimelineContentScroll(state, viewport);
     const atStart = viewport.scrollTop <= 1;
     const atEnd = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1;
     const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });
     const currentVisitScroll = visitScroll();
+    const pendingRowId = currentVisitScroll.pendingMessageNavRowId;
     const target = resolveAdjacentMessageNavigationTarget({
       rows,
       direction,
@@ -370,30 +381,79 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       atEnd,
       positionAtIndex: state.positionAtIndex,
       visibleStart: visibleRange.start,
-      pendingRowId: currentVisitScroll.pendingMessageNavRowId,
+      pendingRowId,
     });
     if (target === null) {
-      return true;
+      if (direction === "next") return { kind: "none" };
+      // The row a step counts back from once earlier history has loaded above it.
+      const pendingIndex =
+        pendingRowId === null ? -1 : rows.findIndex((row) => row.id === pendingRowId);
+      const firstNavigable = navigable[0];
+      const anchorRowId =
+        pendingIndex >= 0
+          ? pendingRowId
+          : firstNavigable === undefined
+            ? (rows[0]?.id ?? null)
+            : rows[firstNavigable]!.id;
+      return { kind: "start", anchorRowId };
     }
     if (target.kind === "end") {
       currentVisitScroll.pendingMessageNavRowId = null;
       scrollToEnd(true);
-      return true;
+      return target;
     }
     currentVisitScroll.pendingMessageNavRowId = target.rowId;
     viewportRef.current?.navigate({ releasesFollow: true });
-    void list.scrollToIndex({
-      index: target.rowIndex,
+    // By key, so a page of history loading above mid-scroll does not move the target.
+    void list.scrollToKey({
+      key: target.rowId,
       animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       viewOffset: TIMELINE_MINIMAP_TARGET_OFFSET,
     });
-    return true;
+    return target;
+  };
+  const navigateToAdjacentMessage = (direction: "previous" | "next"): boolean => {
+    const state = legendListRef.current?.getState?.();
+    if (!state || !legendListRef.current?.getScrollableNode?.()) return false;
+    const outcome = historyPaging.afterStep(direction, stepToAdjacentMessage(direction), false);
+    return (
+      outcome !== "none" ||
+      deriveNavigableMessageRowIndices(state.data as ReadonlyArray<MessagesTimelineRow>).length > 0
+    );
   };
   const navigateToAdjacentMessageStable = useStableCallback(navigateToAdjacentMessage);
+  const stepBackFromStable = useStableCallback((anchorRowId: string) => {
+    visitScroll().pendingMessageNavRowId = anchorRowId;
+    return stepToAdjacentMessage("previous").kind === "row";
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the history paging the list it reads when a step runs into the loaded start
+  useLayoutEffect(() => {
+    const readRows = () =>
+      legendListRef.current?.getState?.().data as ReadonlyArray<MessagesTimelineRow> | undefined;
+    historyPaging.setHost({
+      // The first row changes only when history lands above it, never as a reply streams in.
+      headId: () => readRows()?.[0]?.id ?? "__empty__",
+      hasEarlier: (anchorRowId) => {
+        const rows = readRows();
+        const index = rows?.findIndex((row) => row.id === anchorRowId) ?? -1;
+        if (!rows || index < 0) return undefined;
+        return deriveNavigableMessageRowIndices(rows).some((rowIndex) => rowIndex < index);
+      },
+      stepFrom: stepBackFromStable,
+      onStepped: () => {},
+      onExhausted: () => {},
+      requestFrame: (callback) => requestAnimationFrame(callback),
+    });
+  }, [historyPaging, legendListRef, stepBackFromStable]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the history paging each committed history state, so a step waiting on a page takes it once it lands
+  useLayoutEffect(() => {
+    historyPaging.setHistory(historyControls ?? null, activeThreadKey);
+  }, [historyPaging, historyControls, activeThreadKey]);
 
   const handleNavigation = (navigation: TimelineNavigation) => {
     if (navigation.source !== "command") {
       visitScroll().pendingMessageNavRowId = null;
+      historyPaging.cancel();
     }
     const awayFromEnd = () => resolveTimelineIsAtEnd(legendListRef.current?.getState()) === false;
     const releases = navigationReleasesFollow(navigation, {

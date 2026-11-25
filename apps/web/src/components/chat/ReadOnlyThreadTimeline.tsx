@@ -90,6 +90,7 @@ export function ReadOnlyThreadTimeline(props: {
     timelineEntries: entries,
     timelineAnchorMessageId: null,
     setTimelineAnchor: ignore,
+    historyControls: props.historyControls,
   });
   return (
     <>

@@ -2241,6 +2241,7 @@ export default function ChatView(props: ChatViewProps) {
     timelineEntries,
     timelineAnchorMessageId,
     setTimelineAnchor,
+    historyControls: threadHistoryControls,
   });
 
   useFocusComposerOnThreadOpen(

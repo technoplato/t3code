@@ -1,13 +1,16 @@
 import type { SubagentPillSegment } from "@t3tools/client-runtime/state/thread-subagents";
 import { GlassContainer, GlassView } from "expo-glass-effect";
 import { useGT } from "gt-react-native";
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import * as Haptics from "expo-haptics";
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type LayoutChangeEvent, Pressable, useWindowDimensions, View } from "react-native";
+import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
   Easing,
   FadeIn,
   FadeOut,
   ReduceMotion,
+  runOnJS,
   type SharedValue,
   useAnimatedStyle,
   useReducedMotion,
@@ -20,13 +23,14 @@ import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ControlPill } from "../../components/ui/ControlPill";
-import { Menu } from "../../components/ui/Menu";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { BrowserPreviewButton } from "../browser/browser-preview-button";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingStatusAction, FloatingWorkingStatus } from "./floating-working-status";
-import type { ThreadMessageStepDirection, ThreadMessageStepSender } from "./thread-message-step";
+import type { ChatListStepOutcome } from "@t3tools/shared/chatList";
+import type { ThreadMessageStepDirection, ThreadMessageStepRequest } from "./thread-message-step";
+import { createMessageStepScrub, type MessageStepScrub } from "./thread-message-step-scrub";
 import { ShimmeringWorkContent } from "./thread-work-log";
 
 const CONTROL_HEIGHT = 38.5;
@@ -44,6 +48,17 @@ const CONTROL_ROW_GAP = 14;
 const MESSAGE_STEP_BUTTON_WIDTH = 40;
 // The pair of step buttons and the gap that sets it apart from the scroll button.
 const MESSAGE_STEPS_WIDTH = MESSAGE_STEP_BUTTON_WIDTH * 2 + 16;
+const NO_SETTLE = () => {};
+// A held arrow hears the finger's distance in steps this size, so a slow drag stays quiet.
+const MESSAGE_STEP_DISTANCE_BUCKET_PT = 8;
+const MESSAGE_STEP_HAPTICS = {
+  selection: () => void Haptics.selectionAsync(),
+  engage: (doubleTap: boolean) =>
+    void Haptics.impactAsync(
+      doubleTap ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+    ),
+  boundary: () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid),
+};
 const LABEL_ENTERING = FadeIn.duration(160).delay(80).reduceMotion(ReduceMotion.System);
 const LABEL_EXITING = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
@@ -75,8 +90,10 @@ export function FloatingWorkingControl(props: {
   /** Steps the feed between messages; its buttons show with the scroll button. */
   readonly onStepMessage?: (
     direction: ThreadMessageStepDirection,
-    sender: ThreadMessageStepSender,
-  ) => void;
+    request?: ThreadMessageStepRequest,
+  ) => ChatListStepOutcome;
+  /** Puts the row a held step arrow left off its line onto it, once the arrow is let go. */
+  readonly onSettleMessageStep?: () => void;
   readonly agents: SubagentPillSegment | null;
   readonly onOpenAgents: () => void;
   readonly queuedCount: number;
@@ -106,6 +123,7 @@ export function FloatingWorkingControl(props: {
   const agents = props.agents;
   const hasAgents = agents !== null;
   const { onStepMessage } = props;
+  const onSettleMessageStep = props.onSettleMessageStep ?? NO_SETTLE;
   const stepsWidth = onStepMessage ? MESSAGE_STEPS_WIDTH : 0;
   // Only reserve the scroll and step buttons' slot while they are visible.
   const reservedWidth = props.showScrollToEnd ? CONTROL_HEIGHT + 32 + stepsWidth : 16;
@@ -352,7 +370,11 @@ export function FloatingWorkingControl(props: {
               style={arrowTransformStyle}
             >
               <Animated.View style={arrowContentStyle}>
-                <MessageStepButtons disabled={!props.showScrollToEnd} onStep={onStepMessage} />
+                <MessageStepButtons
+                  disabled={!props.showScrollToEnd}
+                  onStep={onStepMessage}
+                  onSettle={onSettleMessageStep}
+                />
               </Animated.View>
             </AnimatedGlassView>
           ) : null}
@@ -390,7 +412,11 @@ export function FloatingWorkingControl(props: {
               className="h-11 overflow-hidden rounded-full border border-border bg-glass-fallback shadow-md shadow-black/10"
               style={[arrowTransformStyle, arrowContentStyle]}
             >
-              <MessageStepButtons disabled={!props.showScrollToEnd} onStep={onStepMessage} />
+              <MessageStepButtons
+                disabled={!props.showScrollToEnd}
+                onStep={onStepMessage}
+                onSettle={onSettleMessageStep}
+              />
             </Animated.View>
           ) : null}
 
@@ -423,7 +449,7 @@ export function FloatingWorkingControl(props: {
               isInteractive
               className="h-11 overflow-hidden rounded-full"
             >
-              <MessageStepButtons onStep={onStepMessage} />
+              <MessageStepButtons onStep={onStepMessage} onSettle={onSettleMessageStep} />
             </UniwindGlassView>
           ) : null}
           <UniwindGlassView
@@ -439,7 +465,7 @@ export function FloatingWorkingControl(props: {
         <View pointerEvents="box-none" className="flex-row items-center gap-4">
           {onStepMessage ? (
             <View className="h-11 overflow-hidden rounded-full border border-border bg-glass-fallback shadow-md shadow-black/10">
-              <MessageStepButtons onStep={onStepMessage} />
+              <MessageStepButtons onStep={onStepMessage} onSettle={onSettleMessageStep} />
             </View>
           ) : null}
           <ControlPill
@@ -633,49 +659,100 @@ function ScrollToEndButton(props: { readonly disabled?: boolean; readonly onPres
   );
 }
 
-/** Previous and next message; touch and hold either to step only your messages or only responses. */
+/**
+ * Previous and next message. A press steps once; holding repeats, faster as the finger drags
+ * away from the arrow, and a double tap then hold starts faster still.
+ */
 function MessageStepButtons(props: {
   readonly disabled?: boolean;
-  readonly onStep: (direction: ThreadMessageStepDirection, sender: ThreadMessageStepSender) => void;
+  readonly onStep: (
+    direction: ThreadMessageStepDirection,
+    request: ThreadMessageStepRequest,
+  ) => ChatListStepOutcome;
+  readonly onSettle: () => void;
 }) {
+  // One for both arrows, so a finger on each cannot run two loops.
+  const [scrub] = useState(createMessageStepScrub);
+  const { disabled = false, onStep, onSettle } = props;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the scrub the screen's step and settle handlers its next press uses
+  useLayoutEffect(() => {
+    scrub.setHandlers({ step: onStep, settle: onSettle, haptics: MESSAGE_STEP_HAPTICS });
+  }, [scrub, onStep, onSettle]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- ends a hold when the arrows go inert under the finger, as at the end of the feed
+  useEffect(() => {
+    if (disabled) scrub.end();
+  }, [scrub, disabled]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the scrub's repeat timer when the arrows unmount
+  useEffect(() => () => scrub.dispose(), [scrub]);
   return (
     <View className="h-11 flex-row items-center">
-      <MessageStepButton direction="previous" disabled={props.disabled} onStep={props.onStep} />
+      <MessageStepButton direction="previous" disabled={disabled} scrub={scrub} />
       <View className="h-4 w-px bg-border" />
-      <MessageStepButton direction="next" disabled={props.disabled} onStep={props.onStep} />
+      <MessageStepButton direction="next" disabled={disabled} scrub={scrub} />
     </View>
   );
 }
 
 function MessageStepButton(props: {
   readonly direction: ThreadMessageStepDirection;
-  readonly disabled?: boolean;
-  readonly onStep: (direction: ThreadMessageStepDirection, sender: ThreadMessageStepSender) => void;
+  readonly disabled: boolean;
+  readonly scrub: MessageStepScrub;
 }) {
   const gt = useGT();
   const { smallIconSize } = useAndroidControlSizing();
-  const { direction, onStep } = props;
+  const { direction, scrub } = props;
   const previous = direction === "previous";
+  const originX = useSharedValue(0);
+  const originY = useSharedValue(0);
+  const lastBucket = useSharedValue(0);
+  const handleBegin = () => scrub.begin(direction);
+  const handleDistance = (distancePt: number) => scrub.setDistance(distancePt);
+  const handleEnd = () => scrub.end();
+  // A pan never activates while the finger rests, so the press runs from begin to finalize and
+  // reads the drag from raw touches. Every option is named: the worklets Babel plugin rejects a
+  // spread in a gesture's options.
+  const gesture = usePanGesture({
+    enabled: !props.disabled,
+    maxPointers: 1,
+    minDistance: 0,
+    shouldCancelWhenOutside: false,
+    onBegin: (event) => {
+      "worklet";
+      originX.set(event.absoluteX);
+      originY.set(event.absoluteY);
+      lastBucket.set(0);
+      runOnJS(handleBegin)();
+    },
+    onTouchesMove: (event) => {
+      "worklet";
+      const touch = event.changedTouches[0];
+      if (touch === undefined) return;
+      const bucket = Math.floor(
+        Math.hypot(touch.absoluteX - originX.value, touch.absoluteY - originY.value) /
+          MESSAGE_STEP_DISTANCE_BUCKET_PT,
+      );
+      if (bucket === lastBucket.value) return;
+      lastBucket.set(bucket);
+      runOnJS(handleDistance)(bucket * MESSAGE_STEP_DISTANCE_BUCKET_PT);
+    },
+    onFinalize: () => {
+      "worklet";
+      runOnJS(handleEnd)();
+    },
+  });
   return (
-    <Menu
-      shouldOpenOnLongPress
-      actions={[
-        {
-          id: "user",
-          title: previous ? gt("Previous message from you") : gt("Next message from you"),
-        },
-        { id: "assistant", title: previous ? gt("Previous response") : gt("Next response") },
-      ]}
-      onPressAction={({ nativeEvent }) =>
-        onStep(direction, nativeEvent.event === "user" ? "user" : "assistant")
-      }
-    >
+    <GestureDetector gesture={gesture}>
       <Pressable
+        collapsable={false}
         accessibilityRole="button"
         accessibilityLabel={previous ? gt("Previous message") : gt("Next message")}
-        accessibilityHint={gt("Touch and hold to choose your messages or responses")}
         disabled={props.disabled}
-        onPress={() => onStep(direction, "any")}
+        onPress={(event) => {
+          // A touch steps through the gesture; only an accessibility activation, which carries
+          // no touch identifier, steps here.
+          if (typeof event.nativeEvent.identifier === "number") return;
+          scrub.press(direction);
+        }}
         style={{ width: MESSAGE_STEP_BUTTON_WIDTH }}
         className="h-11 items-center justify-center active:opacity-70"
       >
@@ -686,6 +763,6 @@ function MessageStepButton(props: {
           type="monochrome"
         />
       </Pressable>
-    </Menu>
+    </GestureDetector>
   );
 }
