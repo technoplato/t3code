@@ -706,9 +706,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   const toolCallVisibility =
     findActive && preferredToolCallVisibility === "zen" ? "hideAll" : preferredToolCallVisibility;
-  const jumpMessageId = useSyncExternalStore(subscribeThreadMessageJump, () =>
+  const jump = useSyncExternalStore(subscribeThreadMessageJump, () =>
     pendingThreadMessageJump(routeThreadKey),
   );
+  const jumpMessageId = jump?.messageId ?? null;
   // The turn a jump unfolded stays open after the jump finishes.
   const [revealedJumpMessageId, setRevealedJumpMessageId] = useState<MessageId | null>(null);
   if (jumpMessageId !== null && revealedJumpMessageId !== jumpMessageId) {
@@ -1427,8 +1428,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
 
   useTimelineMessageJump({
-    threadKey: routeThreadKey,
-    messageId: jumpMessageId,
+    jump,
     rowIndex: jumpMessageId === null ? -1 : messageJumpRowIndex(rows, jumpMessageId),
     // After the opening restore, which would otherwise pull the list back.
     listReady: findListReady && !restoringThreadPosition,

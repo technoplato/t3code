@@ -1,55 +1,35 @@
-import { MessageId } from "@t3tools/contracts";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
-import {
-  finishThreadMessageJump,
-  messageJumpRowIndex,
-  pendingThreadMessageJump,
-  requestThreadMessageJump,
-  subscribeThreadMessageJump,
-  takeMessageJumpParam,
-} from "./threadMessageJump";
+import { messageJumpRowIndex, takeMessageJumpParam } from "./threadMessageJump";
 
 describe("takeMessageJumpParam", () => {
   it("reads the linked message and keeps the rest of the query", () => {
     expect(takeMessageJumpParam("?messageId=message-1")).toEqual({
       messageId: "message-1",
+      from: null,
       rest: "",
     });
-    expect(takeMessageJumpParam("?prompt=hi&messageId=message-1&x=1")).toEqual({
+    expect(takeMessageJumpParam("?prompt=hi&messageId=message-1&from=0.4&x=1")).toEqual({
       messageId: "message-1",
+      from: 0.4,
       rest: "?prompt=hi&x=1",
     });
     // Still stripped, so an empty or oversized value cannot linger in the URL.
-    expect(takeMessageJumpParam("?messageId=")).toEqual({ messageId: null, rest: "" });
+    expect(takeMessageJumpParam("?messageId=")).toEqual({ messageId: null, from: null, rest: "" });
+    expect(takeMessageJumpParam("?messageId=message-1&from=2")).toEqual({
+      messageId: "message-1",
+      from: null,
+      rest: "",
+    });
+    // `from` without a message is dropped too, never left for the route to read.
+    expect(takeMessageJumpParam("?from=0.4&prompt=hi")).toEqual({
+      messageId: null,
+      from: 0.4,
+      rest: "?prompt=hi",
+    });
     expect(takeMessageJumpParam("?prompt=hi")).toBeNull();
     expect(takeMessageJumpParam("")).toBeNull();
-  });
-});
-
-describe("thread message jump", () => {
-  it("holds a jump for its thread until it lands or lapses", () => {
-    using now = vi.spyOn(Date, "now").mockReturnValue(0);
-    const heard = vi.fn();
-    using _subscription = { [Symbol.dispose]: subscribeThreadMessageJump(heard) };
-
-    requestThreadMessageJump("thread-a", MessageId.make("message-1"));
-    expect(heard).toHaveBeenCalledTimes(1);
-    expect(pendingThreadMessageJump("thread-a")).toBe("message-1");
-    expect(pendingThreadMessageJump("thread-b")).toBeNull();
-
-    finishThreadMessageJump("thread-b");
-    expect(pendingThreadMessageJump("thread-a")).toBe("message-1");
-    finishThreadMessageJump("thread-a");
-    expect(heard).toHaveBeenCalledTimes(2);
-    expect(pendingThreadMessageJump("thread-a")).toBeNull();
-
-    requestThreadMessageJump("thread-a", MessageId.make("message-2"));
-    now.mockReturnValue(29_999);
-    expect(pendingThreadMessageJump("thread-a")).toBe("message-2");
-    now.mockReturnValue(30_000);
-    expect(pendingThreadMessageJump("thread-a")).toBeNull();
   });
 });
 

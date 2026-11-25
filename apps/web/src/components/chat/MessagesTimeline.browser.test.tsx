@@ -1455,7 +1455,7 @@ describe("MessagesTimeline citations", () => {
 });
 
 describe("MessagesTimeline linked message", () => {
-  it("opens at a linked message, and at the end when the thread does not hold it", async () => {
+  it("opens at a linked message or partway down it, and at the end when the thread does not hold it", async () => {
     const entries = Array.from({ length: 60 }, (_, index) =>
       message(
         `Message number ${index}\n\n${"A paragraph of filler text.\n\n".repeat(6)}`,
@@ -1481,6 +1481,26 @@ describe("MessagesTimeline linked message", () => {
       await vi.waitFor(() => {
         expect(isShown("linked-7")).toBe(true);
         expect(pendingThreadMessageJump(linked.routeThreadKey)).toBeNull();
+      });
+    }
+
+    // `from` puts that much of the message above the viewport's top edge, where the view report
+    // that named it measured from.
+    const deep = baseProps();
+    requestThreadMessageJump(deep.routeThreadKey, MessageId.make("linked-7"), 0.5);
+    {
+      await using _screen = await renderElement(
+        <MessagesTimeline {...deep} timelineEntries={entries} />,
+      );
+      await vi.waitFor(() => {
+        expect(pendingThreadMessageJump(deep.routeThreadKey)).toBeNull();
+        const row = document.querySelector<HTMLElement>(`[data-view-item-id="linked-7"]`);
+        const viewport = document.querySelector<HTMLElement>(".messages-timeline-scroll");
+        const rect = row!.getBoundingClientRect();
+        expect(rect.height).toBeGreaterThan(100);
+        expect(
+          Math.abs(rect.top + rect.height / 2 - viewport!.getBoundingClientRect().top),
+        ).toBeLessThan(2);
       });
     }
 

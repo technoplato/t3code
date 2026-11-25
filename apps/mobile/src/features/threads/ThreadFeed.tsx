@@ -248,6 +248,7 @@ import {
   type ThreadFeedLatestRun,
   messageFoldRunId,
 } from "../../lib/threadActivity";
+import type { ClientViewContent } from "@t3tools/client-runtime/client-view";
 import { touchClientView } from "../../connection/client-view";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { type ThreadWorkGroupScrollPosition } from "./thread-feed-scroll-position";
@@ -277,6 +278,8 @@ import {
 } from "./pending-thread-feed";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
+import { landThreadFeedJump, type ThreadFeedJumpLanding } from "./thread-feed-jump";
+import { readThreadFeedView, threadFeedEntryMatchesJumpId } from "./thread-feed-view";
 import { createThreadMessageStepper, type ThreadMessageStepper } from "./thread-message-step";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
@@ -402,11 +405,16 @@ export interface ThreadFeedProps {
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
-  /** A message to scroll to once it is in the feed; see `onJumpedToMessage`. */
-  readonly jumpToMessageId?: MessageId | null;
+  /**
+   * A message or item to scroll to once it is in the feed, and how far down it; see
+   * `onJumpedToMessage`. A new object jumps again, even to the same message.
+   */
+  readonly jump?: { readonly messageId: MessageId; readonly from: number | null } | null;
   readonly onJumpedToMessage?: () => void;
   /** Receives the stepper that moves the feed from one message to the next. */
   readonly messageStepRef?: RefObject<ThreadMessageStepper | null>;
+  /** Receives the reader of the rows that show, for the client view report. */
+  readonly viewReaderRef?: RefObject<(() => ClientViewContent) | null>;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
   readonly sendingWithKeyboard?: boolean;
@@ -3355,16 +3363,24 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // Without the native contentInset, a list-header spacer clears the bar the column lays content under.
   const topContentInset = usesNativeAutomaticInsets ? 0 : columnTopInset;
   const anchorTopInset = usesNativeAutomaticInsets ? barInset : topContentInset;
+  // The part of the anchor inset the list applies itself, as its native content inset.
+  const listContentInsetTop = usesNativeAutomaticInsets ? anchorTopInset : 0;
+  // One stepper for the feed's life: the row it landed on outlives a change of insets.
+  const [messageStepper] = useState(createThreadMessageStepper);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hands the stepper the insets and motion setting its next step lands with
+  useLayoutEffect(() => {
+    messageStepper.setContext(() => ({
+      list: listRef.current,
+      anchorTopInset,
+      listContentInsetTop,
+      animated: !reduceMotion,
+    }));
+  }, [messageStepper, listRef, anchorTopInset, listContentInsetTop, reduceMotion]);
+  useImperativeHandle(props.messageStepRef, () => messageStepper, [messageStepper]);
   useImperativeHandle(
-    props.messageStepRef,
-    () =>
-      createThreadMessageStepper(() => ({
-        list: listRef.current,
-        anchorTopInset,
-        listContentInsetTop: usesNativeAutomaticInsets ? anchorTopInset : 0,
-        animated: !reduceMotion,
-      })),
-    [listRef, anchorTopInset, usesNativeAutomaticInsets, reduceMotion],
+    props.viewReaderRef,
+    () => () => readThreadFeedView(listRef.current, { anchorTopInset, bottomContentInset }),
+    [listRef, anchorTopInset, bottomContentInset],
   );
 
   const theme = useUniwindTheme();
@@ -3925,11 +3941,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const reportMetrics = (ready: boolean) => {
     const state = listRef.current?.getState();
     if (!state) return;
-    if (
-      settling &&
-      ready &&
-      (state.distanceFromEnd <= 2 || !state.isFollowingEnd || props.jumpToMessageId)
-    ) {
+    // A feed opening at a linked message stays hidden until that jump lands, not at the end
+    // it starts from; the jump reveals it.
+    if (settling && ready && !props.jump && (state.distanceFromEnd <= 2 || !state.isFollowingEnd)) {
       setLandedListKey(feedThreadKey);
     }
     // Offset 0 before the first positioning, and the gaps while rows measure in, are not the
@@ -3975,8 +3989,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // Opening at a message: once the filled list has loaded, the render that sees
   // the jump unfolds a run hiding the message and stops following the end, so
   // the committed list holds the target row with end maintenance off.
-  const { jumpToMessageId } = props;
-  const jumpReady = !!jumpToMessageId && loadedListKey === feedThreadKey;
+  const jump = props.jump ?? null;
+  const jumpToMessageId = jump?.messageId ?? null;
+  const jumpReady = jumpToMessageId !== null && loadedListKey === feedThreadKey;
   if (jumpReady && revealedMessageId !== jumpToMessageId) {
     setInteractionState((current) => ({ ...current, revealedMessageId: jumpToMessageId }));
   }
@@ -4001,8 +4016,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     presentedFeed.findLast((entry) => entry.type === "pending-fold")?.messageId ?? null;
   const jumpRunId =
     jumpReady &&
-    !presentedFeed.some((entry) => entry.type === "message" && entry.id === jumpToMessageId)
-      ? messageFoldRunId(props.feed, jumpToMessageId, presentedFeed)
+    !presentedFeed.some((entry) => threadFeedEntryMatchesJumpId(entry, jumpToMessageId))
+      ? messageFoldRunId(
+          props.feed,
+          (entry) => threadFeedEntryMatchesJumpId(entry, jumpToMessageId),
+          presentedFeed,
+        )
       : null;
   if (jumpRunId && (!expandedTurnIds.has(jumpRunId) || collapsedTurnIds.has(jumpRunId))) {
     setInteractionState((current) => {
@@ -4042,27 +4061,44 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     if (list && bottom > 0) list.reportContentInset({ bottom });
   };
   const jumpIndex = jumpReady
-    ? presentedFeed.findIndex((entry) => entry.type === "message" && entry.id === jumpToMessageId)
+    ? presentedFeed.findIndex((entry) => threadFeedEntryMatchesJumpId(entry, jumpToMessageId))
     : null;
-  const landJump = useEffectEvent((index: number) => {
+  const jumpLanding = useRef<ThreadFeedJumpLanding | null>(null);
+  const landJump = useEffectEvent((index: number, from: number | null) => {
     const list = listRef.current;
     if (!list) return;
-    let cancelled = false;
-    const positioning =
-      index === -1 ? undefined : list.scrollToIndex({ index, viewPosition: 0.2, animated: false });
-    void Promise.resolve(positioning).then(() => {
-      if (!cancelled && listRef.current === list) props.onJumpedToMessage?.();
+    const landing = landThreadFeedJump({
+      list,
+      rowKey: presentedFeed[index]?.id ?? null,
+      from,
+      anchorTopInset,
+      listContentInsetTop,
+      onLanded: () => {
+        if (listRef.current !== list) return;
+        // The feed opened hidden; it shows once it is where the link points.
+        setLandedListKey(feedThreadKey);
+        props.onJumpedToMessage?.();
+      },
     });
+    jumpLanding.current = landing;
     return () => {
-      cancelled = true;
+      landing.cancel();
+      if (jumpLanding.current === landing) jumpLanding.current = null;
     };
   });
   // A jump can unfold a run; keep end maintenance off until its position settles.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the native list to the jump target after the commit that rendered its row
   useEffect(() => {
-    if (jumpIndex !== null) return landJump(jumpIndex);
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Jumping to a different message whose row index is unchanged must still land the jump.
-  }, [jumpToMessageId, jumpIndex]);
+    // A new jump whose row index is unchanged, even to the same message, still lands.
+    if (jump !== null && jumpIndex !== null) return landJump(jumpIndex, jump.from);
+  }, [jump, jumpIndex]);
+  // The list reports a drag, a status-bar tap and an accessibility scroll before the promise of
+  // the scroll they interrupt settles, so neither a step nor a jump moves the feed again under
+  // the person's finger.
+  const handleUserScroll = () => {
+    messageStepper.clearLanded();
+    jumpLanding.current?.release();
+  };
 
   const handleViewportLayout = (event: LayoutChangeEvent) => {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
@@ -4629,6 +4665,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onLayout={handleMetricsChange}
             onItemSizeChanged={handleItemSizeChanged}
             onScroll={handleScroll}
+            onUserScroll={handleUserScroll}
             scrollEventThrottle={16}
             ListHeaderComponent={
               <>

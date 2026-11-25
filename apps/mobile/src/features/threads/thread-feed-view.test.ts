@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { readThreadFeedView, threadFeedViewItem } from "./thread-feed-view";
+import {
+  readThreadFeedView,
+  threadFeedEntryMatchesJumpId,
+  threadFeedViewItem,
+} from "./thread-feed-view";
 
 type Row = Parameters<typeof threadFeedViewItem>[0];
 
@@ -10,12 +14,18 @@ const tools = (id: string, ...activityIds: string[]) =>
   ({ type: "activity-group", id, activities: activityIds.map((id) => ({ id })) }) as unknown as Row;
 const fold = (id: string) => ({ type: "run-fold", id }) as unknown as Row;
 
-/** A list laid out top to bottom from row heights, scrolled to `scroll` under a header. */
-function listState(input: {
+const NO_INSETS = { anchorTopInset: 0, bottomContentInset: 0 };
+
+/**
+ * A list laid out top to bottom from row heights, whose top edge is at row position
+ * `viewportStart`. The list's raw scroll offset is left out: it counts a header and padding the
+ * row positions do not.
+ */
+function feedList(input: {
   readonly rows: ReadonlyArray<readonly [Row, number]>;
-  readonly scroll: number;
+  readonly viewportStart: number;
   readonly scrollLength: number;
-  readonly headerSize?: number;
+  readonly placed?: boolean;
 }) {
   const positions: number[] = [];
   let offset = 0;
@@ -23,18 +33,30 @@ function listState(input: {
     positions.push(offset);
     offset += height;
   }
-  const top = input.scroll - (input.headerSize ?? 0);
+  const top = input.viewportStart;
   const visible = input.rows.flatMap(([, height], index) =>
     positions[index]! + height > top && positions[index]! < top + input.scrollLength ? [index] : [],
   );
-  return {
+  const first = visible[0];
+  const state = {
     data: input.rows.map(([row]) => row),
-    start: visible[0] ?? -1,
+    start: first ?? -1,
     end: visible.at(-1) ?? -1,
-    scroll: input.scroll,
     scrollLength: input.scrollLength,
-    positionAtIndex: (index: number) => positions[index],
+    indexByKey: (key: string) => {
+      const index = input.rows.findIndex(([row]) => row.id === key);
+      return index < 0 ? undefined : index;
+    },
+    positionAtIndex: (index: number): number | undefined => positions[index],
     sizeAtIndex: (index: number) => input.rows[index]?.[1],
+  };
+  return {
+    state,
+    getState: () => state,
+    anchorVisibleContent: () =>
+      input.placed === false || first === undefined
+        ? undefined
+        : { key: input.rows[first]![0].id, offset: top - positions[first]! },
   };
 }
 
@@ -51,6 +73,15 @@ describe("threadFeedViewItem", () => {
     expect(threadFeedViewItem(tools("group-empty"))).toBeNull();
     expect(threadFeedViewItem(fold("fold-1"))).toBeNull();
   });
+
+  it("finds the row a link names by the same id it reports", () => {
+    expect(threadFeedEntryMatchesJumpId(message("message-1", "assistant"), "message-1")).toBe(true);
+    expect(threadFeedEntryMatchesJumpId(tools("group-1", "item-1", "item-2"), "item-1")).toBe(true);
+    expect(threadFeedEntryMatchesJumpId(tools("group-1", "item-1", "item-2"), "group-1")).toBe(
+      false,
+    );
+    expect(threadFeedEntryMatchesJumpId(fold("fold-1"), "fold-1")).toBe(false);
+  });
 });
 
 describe("readThreadFeedView", () => {
@@ -63,7 +94,10 @@ describe("readThreadFeedView", () => {
   ] as const;
 
   it("reports the rows in the viewport with the part of each that shows", () => {
-    expect(readThreadFeedView(listState({ rows, scroll: 100, scrollLength: 600 })).items).toEqual([
+    expect(
+      readThreadFeedView(feedList({ rows, viewportStart: 100, scrollLength: 600 }), NO_INSETS)
+        .items,
+    ).toEqual([
       { id: "message-1", kind: "user", from: 0.5, to: 1 },
       { id: "item-1", kind: "tool", from: 0, to: 1 },
       { id: "message-2", kind: "assistant", from: 0, to: 0.18 },
@@ -71,31 +105,49 @@ describe("readThreadFeedView", () => {
   });
 
   it("finds the middle of a reply longer than the screen", () => {
-    expect(readThreadFeedView(listState({ rows, scroll: 1_150, scrollLength: 600 })).items).toEqual(
-      [{ id: "message-2", kind: "assistant", from: 0.4, to: 0.7 }],
-    );
-  });
-
-  it("stays within what the list calls visible when a header offsets the scroll", () => {
-    // The offset includes a 120pt header the row positions leave out.
-    const state = listState({ rows, scroll: 2_270, scrollLength: 600, headerSize: 120 });
-    expect([state.start, state.end]).toEqual([3, 4]);
-    const { items } = readThreadFeedView(state);
-    expect(items.map((item) => item.id)).toEqual(["message-2", "message-3"]);
-    expect(items[1]).toMatchObject({ from: 0, to: 1 });
-    expect(items[0]?.to).toBe(1);
-  });
-
-  it("reports nothing before the list has laid out", () => {
-    expect(readThreadFeedView(undefined).items).toEqual([]);
-    expect(readThreadFeedView(listState({ rows: [], scroll: 0, scrollLength: 600 })).items).toEqual(
-      [],
-    );
     expect(
-      readThreadFeedView({
-        ...listState({ rows, scroll: 0, scrollLength: 600 }),
-        positionAtIndex: () => undefined,
-      }).items,
+      readThreadFeedView(feedList({ rows, viewportStart: 1_150, scrollLength: 600 }), NO_INSETS)
+        .items,
+    ).toEqual([{ id: "message-2", kind: "assistant", from: 0.4, to: 0.7 }]);
+  });
+
+  it("measures from under the bar to above the composer", () => {
+    // The bar covers the list's top 100pt and the composer its bottom 190pt, so the person sees
+    // row positions 200 to 510: none of message-1, and message-2 from its start.
+    const list = feedList({ rows, viewportStart: 100, scrollLength: 600 });
+    expect(
+      readThreadFeedView(list, { anchorTopInset: 100, bottomContentInset: 190 }).items,
+    ).toEqual([
+      { id: "item-1", kind: "tool", from: 0, to: 1 },
+      { id: "message-2", kind: "assistant", from: 0, to: 0.08 },
+    ]);
+    // A composer taller than the list leaves nothing in view, not a viewport turned inside out.
+    expect(
+      readThreadFeedView(list, { anchorTopInset: 100, bottomContentInset: 900 }).items,
+    ).toEqual([]);
+  });
+
+  it("reports nothing before the list has placed its rows", () => {
+    expect(readThreadFeedView(undefined, NO_INSETS).items).toEqual([]);
+    expect(
+      readThreadFeedView(feedList({ rows: [], viewportStart: 0, scrollLength: 600 }), NO_INSETS)
+        .items,
+    ).toEqual([]);
+    expect(
+      readThreadFeedView(
+        feedList({ rows, viewportStart: 0, scrollLength: 600, placed: false }),
+        NO_INSETS,
+      ).items,
+    ).toEqual([]);
+    const unpositioned = feedList({ rows, viewportStart: 0, scrollLength: 600 });
+    expect(
+      readThreadFeedView(
+        {
+          ...unpositioned,
+          getState: () => ({ ...unpositioned.state, positionAtIndex: () => undefined }),
+        },
+        NO_INSETS,
+      ).items,
     ).toEqual([]);
   });
 });

@@ -35,6 +35,10 @@
       "types": "./src/threadMessageLink.ts",
       "default": "./src/threadMessageLink.ts"
     },
+    "./thread-message-jump": {
+      "types": "./src/threadMessageJump.ts",
+      "default": "./src/threadMessageJump.ts"
+    },
     "./client-view": {
       "types": "./src/clientView.ts",
       "default": "./src/clientView.ts"

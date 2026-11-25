@@ -5214,9 +5214,16 @@ describe("resolveAdjacentMessageNavigationTarget", () => {
     makeMessageRow("system-1", "system"),
     makeMessageRow("user-2", "user"),
     makeMessageRow("assistant-2", "assistant"),
+    {
+      kind: "sent-message",
+      id: "sent-1",
+      createdAt: "2026-11-20T12:00:02.000Z",
+      text: "Shown to the user.",
+    },
   ];
-  it("steps only between user and assistant messages that show, skipping work, system and empty rows", () => {
-    expect(deriveNavigableMessageRowIndices(rows)).toEqual([0, 3, 5, 6]);
+  it("steps only between messages that show, skipping work, system and empty rows", () => {
+    // Text the agent showed with `send_to_user` is a row of its own, and a stop like its replies.
+    expect(deriveNavigableMessageRowIndices(rows)).toEqual([0, 3, 5, 6, 7]);
     // The step itself is covered in @t3tools/shared/chatList; here, a pending row is found by id.
     expect(
       resolveAdjacentMessageNavigationTarget({

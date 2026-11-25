@@ -471,9 +471,11 @@ export function resolveTimelineContentScroll(
     : state.scroll;
 }
 
-function isNavigableMessageTimelineRow(
-  row: MessagesTimelineRow | undefined,
-): row is Extract<MessagesTimelineRow, { kind: "message" }> {
+function isNavigableMessageTimelineRow(row: MessagesTimelineRow | undefined): boolean {
+  // Text the agent showed with `send_to_user` reads as one of its replies.
+  if (row?.kind === "sent-message") {
+    return true;
+  }
   if (row?.kind !== "message" || row.message.role === "system") {
     return false;
   }

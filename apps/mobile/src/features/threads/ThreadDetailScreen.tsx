@@ -160,13 +160,14 @@ import {
   pendingThreadMessageJump,
   subscribeThreadMessageJump,
 } from "./threadMessageJump";
-import { readThreadFeedView } from "./thread-feed-view";
+import { threadFeedEntryMatchesJumpId } from "./thread-feed-view";
 import type {
   ThreadMessageStepDirection,
   ThreadMessageStepSender,
   ThreadMessageStepper,
 } from "./thread-message-step";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
+import type { ClientViewContent } from "@t3tools/client-runtime/client-view";
 import { recordClientViewGesture, viewThread } from "../../connection/client-view";
 import {
   clearThreadComposerError,
@@ -550,6 +551,7 @@ function ThreadDetailBody(
   }, [editingRunId, composerEditorRef]);
   const listRef = useRef<LegendListRef>(null);
   const messageStepRef = useRef<ThreadMessageStepper | null>(null);
+  const feedViewReaderRef = useRef<(() => ClientViewContent) | null>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   // Aborted when this thread's body unmounts, so async work started for it
   // stops touching a list or composer that now shows another thread.
@@ -644,8 +646,9 @@ function ThreadDetailBody(
   useFocusEffect(
     useCallback(() => {
       if (viewedEnvironmentId === undefined || viewedThreadId === undefined) return;
-      return viewThread({ environmentId: viewedEnvironmentId, threadId: viewedThreadId }, () =>
-        readThreadFeedView(listRef.current?.getState()),
+      return viewThread(
+        { environmentId: viewedEnvironmentId, threadId: viewedThreadId },
+        () => feedViewReaderRef.current?.() ?? { items: [] },
       );
     }, [viewedEnvironmentId, viewedThreadId]),
   );
@@ -957,14 +960,15 @@ function ThreadDetailBody(
     devicePreviews.length > 0 ||
     browserTabs.tabs.length > 0;
   const selectedThreadFeed = props.selectedThreadFeed;
-  // A palette message result opens the thread at that message: earlier
-  // history loads until the message is in the feed, which then scrolls to it.
-  const jumpMessageId = useSyncExternalStore(subscribeThreadMessageJump, () =>
+  // A palette message result or a link opens the thread at that message or item: earlier
+  // history loads until it is in the feed, which then scrolls to it.
+  const jump = useSyncExternalStore(subscribeThreadMessageJump, () =>
     pendingThreadMessageJump(selectedThreadKey),
   );
+  const jumpMessageId = jump?.messageId ?? null;
   const jumpMessageLoaded =
     jumpMessageId !== null &&
-    selectedThreadFeed.some((entry) => entry.type === "message" && entry.id === jumpMessageId);
+    selectedThreadFeed.some((entry) => threadFeedEntryMatchesJumpId(entry, jumpMessageId));
   const historyForJump = props.historyControls;
   // History down to the message in one request; another page if it is not
   // there yet.
@@ -1612,9 +1616,10 @@ function ThreadDetailBody(
                   listRef={listRef}
                   freeze={freeze}
                   anchorMessageId={anchorMessageId}
-                  jumpToMessageId={jumpMessageLoaded ? jumpMessageId : null}
+                  jump={jumpMessageLoaded ? jump : null}
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
                   messageStepRef={messageStepRef}
+                  viewReaderRef={feedViewReaderRef}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
                   sendingWithKeyboard={sendingWithKeyboard}

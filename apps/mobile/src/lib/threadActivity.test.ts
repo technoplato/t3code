@@ -996,15 +996,28 @@ describe("buildThreadFeed", () => {
         deriveThreadFeedPresentation(feed, null, expanded).map((entry) => entry.id);
       const foldRunId = messageFoldRunId(
         feed,
-        "message-middle",
+        (entry) => entry.id === "message-middle",
         deriveThreadFeedPresentation(feed, null, new Set()),
       );
       expect(foldRunId, String(runless)).toBe(runless ? "runless:message-user" : runId);
+      // A folded row of work is under the same fold as the message beside it.
+      expect(
+        messageFoldRunId(
+          feed,
+          (entry) => entry.type === "activity-group",
+          deriveThreadFeedPresentation(feed, null, new Set()),
+        ),
+        String(runless),
+      ).toBe(foldRunId);
       expect(ids(new Set())).not.toContain("message-middle");
       expect(ids(new Set([foldRunId!]))).toContain("message-middle");
     }
     expect(
-      messageFoldRunId(buildThreadFeed([projected(userMessage(), 0)]), "message-user", []),
+      messageFoldRunId(
+        buildThreadFeed([projected(userMessage(), 0)]),
+        (entry) => entry.id === "message-user",
+        [],
+      ),
     ).toBe(null);
   });
 
@@ -1141,7 +1154,7 @@ describe("buildThreadFeed", () => {
     ).toEqual(["message-user", "run-fold", "message-steer", "run-fold", "message-assistant"]);
     const foldRunId = messageFoldRunId(
       feed,
-      "message-progress",
+      (entry) => entry.id === "message-progress",
       deriveThreadFeedPresentation(feed, null, new Set()),
     );
     expect(
@@ -1164,7 +1177,11 @@ describe("buildThreadFeed", () => {
         toolCallVisibility: "hideAll",
         revealedMessageId: null,
       });
-    const hiddenToolsFoldRunId = messageFoldRunId(feed, "message-progress", hideAll(new Set()));
+    const hiddenToolsFoldRunId = messageFoldRunId(
+      feed,
+      (entry) => entry.id === "message-progress",
+      hideAll(new Set()),
+    );
     expect(hideAll(new Set([hiddenToolsFoldRunId!])).map((entry) => entry.id)).toContain(
       "message-progress",
     );

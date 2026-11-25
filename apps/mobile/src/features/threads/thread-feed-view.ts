@@ -1,4 +1,8 @@
-import { type ClientViewContent, visibleViewItems } from "@t3tools/client-runtime/client-view";
+import {
+  type ClientViewContent,
+  type MeasuredViewRow,
+  visibleViewItems,
+} from "@t3tools/client-runtime/client-view";
 
 import type { ThreadFeedRow } from "./pending-thread-feed";
 
@@ -8,10 +12,32 @@ interface FeedListState {
   /** First and last row in the viewport, without the draw buffer; -1 before layout. */
   readonly start: number;
   readonly end: number;
-  readonly scroll: number;
   readonly scrollLength: number;
+  readonly indexByKey: (key: string) => number | undefined;
   readonly positionAtIndex: (index: number) => number | undefined;
   readonly sizeAtIndex: (index: number) => number | undefined;
+}
+
+/** The part of the feed's list read here. */
+interface FeedList {
+  readonly getState: () => FeedListState;
+  readonly anchorVisibleContent: (options: {
+    readonly hold: false;
+  }) => { readonly key: string; readonly offset: number } | undefined;
+}
+
+/**
+ * Where the list's top edge is, in the space of its row positions, which leave out its header and
+ * padding. Undefined before the list has placed its rows and while it swaps to another thread;
+ * its raw scroll offset is in another space and is no substitute.
+ */
+export function threadFeedViewportStart(list: FeedList): number | undefined {
+  const visible = list.anchorVisibleContent({ hold: false });
+  if (!visible) return undefined;
+  const state = list.getState();
+  const index = state.indexByKey(visible.key);
+  const position = index === undefined ? undefined : state.positionAtIndex(index);
+  return position === undefined ? undefined : position + visible.offset;
 }
 
 /** The record a feed row shows, by an id its server can look up. Null for chrome rows. */
@@ -32,46 +58,35 @@ export function threadFeedViewItem(
   }
 }
 
+/** Whether a link's id names this feed row: a message, or the record another row shows. */
+export function threadFeedEntryMatchesJumpId(entry: ThreadFeedRow, id: string): boolean {
+  return (entry.type === "message" && entry.id === id) || threadFeedViewItem(entry)?.id === id;
+}
+
 /**
- * The rows in the feed's viewport with the part of each that shows. Row positions leave out the
- * list's header and top padding, which its state does not expose, so the viewport's top is the
- * scroll offset held inside the range the list's own first and last visible rows allow.
+ * The rows the person can see with the part of each that shows: what lies between the bar that
+ * covers the list's top (`anchorTopInset`) and the composer that covers its bottom
+ * (`bottomContentInset`). A link built from an item's `from` lands that same line on its row.
  */
-export function readThreadFeedView(state: FeedListState | undefined): ClientViewContent {
-  if (!state || state.start < 0 || state.end < state.start) return { items: [] };
-  const rows: Array<{
-    readonly index: number;
-    readonly top: number;
-    readonly bottom: number;
-  }> = [];
+export function readThreadFeedView(
+  list: FeedList | null | undefined,
+  insets: { readonly anchorTopInset: number; readonly bottomContentInset: number },
+): ClientViewContent {
+  const state = list?.getState();
+  if (!list || !state || state.start < 0 || state.end < state.start) return { items: [] };
+  const viewportStart = threadFeedViewportStart(list);
+  if (viewportStart === undefined) return { items: [] };
+  const rows: Array<MeasuredViewRow> = [];
   for (let index = state.start; index <= state.end; index += 1) {
     const top = state.positionAtIndex(index);
     const size = state.sizeAtIndex(index);
     if (top === undefined || size === undefined) continue;
-    rows.push({ index, top, bottom: top + size });
+    const item = threadFeedViewItem(state.data[index] as ThreadFeedRow);
+    if (item) rows.push({ ...item, top, bottom: top + size });
   }
-  const first = rows[0];
-  const last = rows.at(-1);
-  if (!first || !last) return { items: [] };
 
-  const length = state.scrollLength;
-  const lowest = Math.max(
-    state.start > 0 ? first.top : Number.NEGATIVE_INFINITY,
-    last.top - length,
-  );
-  const highest = Math.min(
-    first.bottom,
-    state.end < state.data.length - 1 ? last.bottom - length : Number.POSITIVE_INFINITY,
-  );
-  const top = lowest <= highest ? Math.min(Math.max(state.scroll, lowest), highest) : state.scroll;
-
-  return {
-    items: visibleViewItems(
-      { top, bottom: top + length },
-      rows.flatMap((row) => {
-        const item = threadFeedViewItem(state.data[row.index] as ThreadFeedRow);
-        return item ? [{ ...item, top: row.top, bottom: row.bottom }] : [];
-      }),
-    ),
-  };
+  const top = viewportStart + insets.anchorTopInset;
+  const bottom =
+    viewportStart + Math.max(insets.anchorTopInset, state.scrollLength - insets.bottomContentInset);
+  return { items: visibleViewItems({ top, bottom }, rows) };
 }

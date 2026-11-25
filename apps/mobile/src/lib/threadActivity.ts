@@ -1141,28 +1141,27 @@ export function failedFeedRunIds(
 }
 
 /**
- * The key a run fold uses for the message `entryId`: its run, or for an
- * imported message with no run, the runless key of the user message before
- * it, or the segment after its run's last steer when `presented` shows that
- * fold. Null for user messages, which never fold.
+ * The key a run fold uses for the first entry `isTarget` picks, a message or a row of work: its
+ * run, or for an imported entry with no run, the runless key of the user message before it, or
+ * the segment after its run's last steer when `presented` shows that fold. Null for user
+ * messages, which never fold.
  */
 export function messageFoldRunId(
   feed: ReadonlyArray<ThreadFeedEntry>,
-  entryId: string,
+  isTarget: (entry: ThreadFeedEntry) => boolean,
   presented: ReadonlyArray<{ readonly type: string; readonly runId?: RunId | null }>,
 ): RunId | null {
   let runlessKey: RunId | null = null;
   const lastSteerIdByRunId = new Map<RunId, string>();
   for (const entry of feed) {
-    if (entry.type !== "message") continue;
-    if (entry.message.role === "user") {
-      if (entry.id === entryId) return null;
+    if (entry.type === "message" && entry.message.role === "user") {
+      if (isTarget(entry)) return null;
       if (isSteerMessage(entry.message) && entry.message.runId != null) {
         lastSteerIdByRunId.set(entry.message.runId, entry.id);
       }
       runlessKey = entry.message.runId == null ? RunId.make(`runless:${entry.id}`) : null;
-    } else if (entry.id === entryId) {
-      const runId = entry.message.runId ?? runlessKey;
+    } else if (isTarget(entry)) {
+      const runId = feedEntryFoldRunId(entry, runlessKey);
       const steerId = runId === null ? undefined : lastSteerIdByRunId.get(runId);
       if (runId === null || steerId === undefined) return runId;
       // Tool visibility can drop all output before the steer, leaving no split.
