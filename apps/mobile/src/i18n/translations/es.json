@@ -5536,7 +5536,7 @@
   "2cbbfd0051e862ab": "Expandir el pensamiento de forma predeterminada",
   "5314e1d861ac9580": "Abrir automáticamente los trazos de pensamiento y razonamiento del agente",
   "4003173458442eb6": "Expandir llamadas a herramientas de forma predeterminada",
-  "d7a443b7fdc16ca7": "Abrir automáticamente grupos de llamadas a herramientas y resúmenes completados",
+  "9c2f2fec53cbf659": "Abrir automáticamente grupos de llamadas a herramientas, cada llamada y grupo de subagentes, y resúmenes completados",
   "f37fb72a3f8a5164": "Altura del cuadro de desplazamiento de actividad",
   "8d545d54c0a9e950": "Oculta los comandos, ediciones y búsquedas que ejecutan los agentes. Ocultar las correctas mantiene los fallos. Zen solo muestra las respuestas finales. Las aprobaciones, preguntas y errores siempre se muestran.",
   "611434a264b1ce8a": "Controla la altura máxima de los cuadros de desplazamiento de pensamiento y herramientas. Elige Completo para leer todo en línea sin cuadro de desplazamiento interno."

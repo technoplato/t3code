@@ -1,8 +1,12 @@
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogButton, WorkLogList, WorkLogResizeHandle, WorkLogRow } from "./WorkLog";
 import {
+  clampWorkGroupExpandedHeightPx,
   resolveWorkGroupBaseMaxHeightCss,
+  shouldVirtualizeFullHeightWorkGroup,
   useCustomWorkLogScrollHeightPx,
+  WORK_GROUP_EXPANDED_MAX_SHARE_CSS,
+  WORK_GROUP_FULL_VIRTUALIZED_MAX_HEIGHT_CSS,
 } from "./workLogScrollHeight";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { type ToolActivityIcon } from "@t3tools/contracts";
@@ -205,6 +209,7 @@ function ExpandedWorkGroupEntries({
     workGroupViewState: viewState,
     expandedWorkGroupIds,
     expandThinkingByDefault,
+    expandToolCallsByDefault,
     workLogScrollHeight,
     onToggleWorkEntry,
     onWorkEntryContentReady,
@@ -215,13 +220,18 @@ function ExpandedWorkGroupEntries({
   const leadingReasoningEntryIds = new Set<string>();
   if (expandedWorkGroupIds.has(groupId)) {
     for (const entry of entries) {
-      if (entry.itemType !== "reasoning") break;
+      if (entry.itemType !== "reasoning") continue;
       if ((entry.detail?.trim() ?? "") !== "") leadingReasoningEntryIds.add(entry.id);
     }
   }
   const customHeightPx = useCustomWorkLogScrollHeightPx();
   const baseMaxHeightCss = resolveWorkGroupBaseMaxHeightCss(workLogScrollHeight, customHeightPx);
-  const isFullHeight = baseMaxHeightCss === undefined;
+  const virtualizesFullHeight = shouldVirtualizeFullHeightWorkGroup(
+    workLogScrollHeight,
+    expandToolCallsByDefault,
+    entries.length,
+  );
+  const isFullHeight = baseMaxHeightCss === undefined && !virtualizesFullHeight;
   const gt = useGT();
   const [initialScrollIndex] = useState(() =>
     resolveWorkGroupScrollIndex(entries, viewState.scrollPositions.get(anchorKey)),
@@ -313,11 +323,14 @@ function ExpandedWorkGroupEntries({
     const state = listRef.current?.getState();
     let height = 0;
     for (const entry of entries) {
+      // A tool row that cannot expand measures compact, so it adds nothing below.
+      const opensByDefault =
+        entry.itemType === "reasoning"
+          ? expandThinkingByDefault || leadingReasoningEntryIds.has(entry.id)
+          : expandToolCallsByDefault;
       const entryExpanded =
         viewState.expandedEntries.has(entry.id) ||
-        ((expandThinkingByDefault || leadingReasoningEntryIds.has(entry.id)) &&
-          entry.itemType === "reasoning" &&
-          !viewState.collapsedEntries.has(entry.id));
+        (opensByDefault && !viewState.collapsedEntries.has(entry.id));
       if (!entryExpanded) continue;
       if (state?.indexByKey(entry.id) === undefined) continue;
       height += Math.max(
@@ -325,13 +338,14 @@ function ExpandedWorkGroupEntries({
         (state.sizes.get(entry.id) ?? compactWorkEntryHeight) - compactWorkEntryHeight,
       );
     }
-    setExpandedContentHeight(height);
+    setExpandedContentHeight(clampWorkGroupExpandedHeightPx(height, window.innerHeight));
   };
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads expanded row sizes from LegendList's measured state after layout
   useLayoutEffect(updateExpandedContentHeight, [
     entries,
     expandThinkingByDefault,
+    expandToolCallsByDefault,
     updateExpandedContentHeight,
   ]);
 
@@ -380,16 +394,24 @@ function ExpandedWorkGroupEntries({
           role="region"
           aria-label={gt("Tool calls")}
           data-tool-group-scroll
-          style={{ maxHeight: `calc(${baseMaxHeightCss} + ${expandedContentHeight}px)` }}
+          style={{
+            maxHeight:
+              baseMaxHeightCss === undefined
+                ? WORK_GROUP_FULL_VIRTUALIZED_MAX_HEIGHT_CSS
+                : `calc(${baseMaxHeightCss} + min(${expandedContentHeight}px, ${WORK_GROUP_EXPANDED_MAX_SHARE_CSS}))`,
+          }}
           className={cn(
             "scrollbar-gutter-stable scroll-py-6 overflow-x-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
             getVirtualizedScrollFadeClassName(fades),
           )}
         />
-        <WorkLogResizeHandle
-          getTargetElement={() => listRef.current?.getScrollableNode() ?? null}
-          offsetPx={expandedContentHeight}
-        />
+        {/* "full" has no stored height to drag. */}
+        {baseMaxHeightCss === undefined ? null : (
+          <WorkLogResizeHandle
+            getTargetElement={() => listRef.current?.getScrollableNode() ?? null}
+            offsetPx={expandedContentHeight}
+          />
+        )}
       </WorkLogList>
     </WorkGroupViewCtx>
   );

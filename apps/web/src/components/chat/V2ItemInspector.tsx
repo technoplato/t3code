@@ -28,7 +28,12 @@ import { CommandOutputPanel, useCommandOutputStreaming } from "./CommandOutputPa
 import { resolveExternalWebLinkHref } from "./externalLinkContextMenu";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ShellCommandBlock } from "./ShellCommandBlock";
-import { TimelineRowCtx, useInitialOutputReady, type TurnItemSource } from "./timelineRowContext";
+import {
+  useInitialOutputReady,
+  useWorkLogScrollHeightPreset,
+  type TurnItemSource,
+} from "./timelineRowContext";
+import { resolveToolOutputMaxHeightClassName } from "./workLogScrollHeight";
 
 interface V2ItemInspectorProps {
   readonly onInitialOutputReady?: (() => void) | undefined;
@@ -64,6 +69,9 @@ function SyntaxTokens({
   ]);
 }
 
+// Tokenizing a large payload blocks the main thread for every row that opens itself.
+const SYNTAX_HIGHLIGHT_MAX_CHARS = 16 * 1024;
+
 const monoClassName =
   "font-mono text-(length:--font-size-code,var(--text-2xs)) leading-relaxed whitespace-pre-wrap break-words select-text";
 
@@ -76,20 +84,13 @@ function StructuredValue({
   readonly highlightJson?: boolean;
   readonly language?: "typescript" | "html" | "json";
 }) {
-  const timelineCtx = use(TimelineRowCtx) as { workLogScrollHeight?: string } | null;
-  const workLogScrollHeight = timelineCtx?.workLogScrollHeight ?? "default";
+  const maxHeightClass = resolveToolOutputMaxHeightClassName(useWorkLogScrollHeightPreset());
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   const isJson = highlightJson && isJsonToolText(text);
   if (!text) return null;
-  const maxHeightClass =
-    workLogScrollHeight === "full"
-      ? "max-h-none"
-      : workLogScrollHeight === "tall"
-        ? "max-h-[36rem]"
-        : "max-h-80";
   return (
     <pre className={cn(maxHeightClass, "overflow-auto text-muted-foreground", monoClassName)}>
-      {language || isJson ? (
+      {(language || isJson) && text.length <= SYNTAX_HIGHLIGHT_MAX_CHARS ? (
         <RenderErrorBoundary fallback={text}>
           <Suspense fallback={text}>
             <SyntaxTokens text={text} language={language ?? "json"} />

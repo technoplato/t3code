@@ -10160,7 +10160,7 @@
   "5848a9c1d77f45b2": "Återställ verktygsanrop i chatten till standard",
   "c76f6dc3993912b2": "Expandera agentens tänkande och resonemang automatiskt i stället för att fälla ihop dem bakom en enradig förhandsvisning. Du kan fortfarande klicka för att fälla ihop.",
   "aaa05960bb333dcf": "Återställ expandera tänkande som standard",
-  "eb7576eff8c47734": "Expandera verktygsanropsgrupper och avslutade tursammanfattningar automatiskt i stället för att fälla ihop dem. Du kan fortfarande klicka på en grupp för att fälla ihop den.",
+  "a74c9784d2eaf89b": "Expandera verktygsanropsgrupper, varje verktygsanrop och subagentgrupp i dem samt avslutade tursammanfattningar automatiskt i stället för att fälla ihop dem. Du kan fortfarande klicka på var och en för att fälla ihop den.",
   "c08ca91481478035": "Återställ expandera verktygsanrop som standard",
   "138032187d83a73e": "Styr maxhöjden för expanderade rullningsrutor för tänkande och verktygsanrop. Dra nederkanten för att ändra storlek eller välj Full för att visa direkt i flödet.",
   "135367b7bf88471a": "Återställ höjd på aktivitetens rullningsruta till standard",

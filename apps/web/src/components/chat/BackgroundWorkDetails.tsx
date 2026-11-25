@@ -8,6 +8,7 @@ import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2Pe
 import { T, useGT } from "gt-react";
 import { useState } from "react";
 
+import { useClientSettings } from "../../hooks/useSettings";
 import { InlineButton } from "../ui/button";
 import {
   Dialog,
@@ -44,6 +45,7 @@ export function BackgroundWorkDetails(props: {
   };
   const [open, setOpen] = useState(false);
   const streamsOutput = useCommandOutputStreaming(props.environmentId);
+  const workLogScrollHeight = useClientSettings((settings) => settings.workLogScrollHeight);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<InlineButton />}>
@@ -96,6 +98,7 @@ export function BackgroundWorkDetails(props: {
                         environmentId={props.environmentId}
                         threadId={task.sourceThreadId ?? item?.threadId ?? props.threadId}
                         itemId={itemId}
+                        workLogScrollHeight={workLogScrollHeight}
                       />
                     </div>
                   ) : null}

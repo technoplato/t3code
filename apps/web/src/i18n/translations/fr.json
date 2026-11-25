@@ -10152,7 +10152,7 @@
   "5848a9c1d77f45b2": "Réinitialiser les appels d’outils dans la discussion à la valeur par défaut",
   "c76f6dc3993912b2": "Déplier automatiquement les traces de réflexion et de raisonnement de l'agent au lieu de les réduire à un aperçu d'une ligne. Vous pouvez toujours cliquer pour en replier une.",
   "aaa05960bb333dcf": "Réinitialiser le dépliage par défaut de la réflexion",
-  "eb7576eff8c47734": "Déplier automatiquement les groupes d'appels d'outils et les résumés de tours terminés au lieu de les replier. Vous pouvez toujours cliquer sur un groupe pour le replier.",
+  "a74c9784d2eaf89b": "Déplier automatiquement les groupes d'appels d'outils, chaque appel d'outil et chaque groupe de sous-agents qu'ils contiennent, ainsi que les résumés de tours terminés au lieu de les replier. Vous pouvez toujours cliquer sur l'un d'eux pour le replier.",
   "c08ca91481478035": "Réinitialiser le dépliage par défaut des appels d'outils",
   "138032187d83a73e": "Contrôle la hauteur maximale des zones de défilement de réflexion et d'appels d'outils. Glissez le bord inférieur pour redimensionner ou choisissez Complet pour afficher en entier.",
   "135367b7bf88471a": "Réinitialiser la hauteur de la zone de défilement d'activité",

@@ -7,8 +7,49 @@ import {
 import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { m, type MessageResolver } from "../../i18n/messages";
-import { type TimelineWorkEntry, type TimelineRow } from "./timelineRowContext";
+import {
+  type TimelineWorkEntry,
+  type TimelineRow,
+  type WorkGroupViewState,
+} from "./timelineRowContext";
 import { type WorkEntryIconName } from "./TimelineToolActivityIcon";
+
+type DisclosureViewState = Pick<WorkGroupViewState, "expandedEntries" | "collapsedEntries">;
+
+/** What the person last chose for a disclosure; null leaves it to the setting. */
+export function readDisclosureOverride(state: DisclosureViewState, id: string): boolean | null {
+  if (state.expandedEntries.has(id)) return true;
+  if (state.collapsedEntries.has(id)) return false;
+  return null;
+}
+
+/** A collapse is remembered too, so a row the setting opens stays closed after it remounts. */
+export function writeDisclosureOverride(
+  state: DisclosureViewState,
+  id: string,
+  open: boolean,
+): void {
+  const [chosen, other] = open
+    ? [state.expandedEntries, state.collapsedEntries]
+    : [state.collapsedEntries, state.expandedEntries];
+  chosen.add(id);
+  other.delete(id);
+}
+
+/** Whether a tool row opens without a click. Notices and notifications carry a link or a sign-in, never details. */
+export function toolRowExpandsByDefault(input: {
+  readonly expandToolCallsByDefault: boolean;
+  readonly canExpand: boolean;
+  readonly isSystemNotice: boolean;
+  readonly isNotification: boolean;
+}): boolean {
+  return (
+    input.expandToolCallsByDefault &&
+    input.canExpand &&
+    !input.isSystemNotice &&
+    !input.isNotification
+  );
+}
 
 export function toolGroupSummaryIconName(
   kind: Extract<TimelineRow, { kind: "work-toggle" }>["summaryKind"],

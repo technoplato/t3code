@@ -20,7 +20,7 @@ import {
 import type { AsyncResult, Atom } from "effect/reactivity";
 import type { CommandOutputView } from "@t3tools/client-runtime/state/command-output";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
-import { useEffect, useRef, createContext, type MouseEvent, type ReactNode } from "react";
+import { use, useEffect, useRef, createContext, type MouseEvent, type ReactNode } from "react";
 import { type LegendListRef } from "@legendapp/list/react";
 import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplates";
 import type { PendingApproval } from "../../session-logic";
@@ -110,6 +110,7 @@ export interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
   expandedWorkGroupIds: ReadonlySet<string>;
   expandThinkingByDefault: boolean;
+  expandToolCallsByDefault: boolean;
   workLogScrollHeight: WorkLogScrollHeight;
 }
 
@@ -128,6 +129,12 @@ export interface TimelineRowActivityState {
 export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
 
 export const TimelineRowActivityCtx = createContext<TimelineRowActivityState>(null!);
+
+/** Output panels also render outside the timeline, such as in the background work dialog. */
+export function useWorkLogScrollHeightPreset(override?: WorkLogScrollHeight): WorkLogScrollHeight {
+  const ctx: TimelineRowSharedState | null = use(TimelineRowCtx);
+  return override ?? ctx?.workLogScrollHeight ?? "default";
+}
 
 export interface WorkGroupViewState {
   scrollPositions: Map<string, WorkGroupScrollAnchor>;

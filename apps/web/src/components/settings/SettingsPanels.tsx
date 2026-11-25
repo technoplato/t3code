@@ -1644,7 +1644,7 @@ function ExpandToolCallsByDefaultRow() {
     <SettingsRow
       {...setting("expand-tool-calls-by-default")}
       description={gt(
-        "Automatically expand tool call groups and completed turn summaries instead of collapsing them. You can still click any group to collapse it.",
+        "Automatically expand tool call groups, each tool call and subagent group inside them, and completed turn summaries instead of collapsing them. You can still click any of them to collapse it.",
       )}
       resetAction={
         settings.expandToolCallsByDefault !== DEFAULT_UNIFIED_SETTINGS.expandToolCallsByDefault ? (

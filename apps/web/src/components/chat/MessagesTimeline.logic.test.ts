@@ -5424,6 +5424,18 @@ describe("default expansion settings", () => {
         (row) => row.kind === "work-toggle" && row.groupId === collapsedToolGroup.groupId,
       ),
     ).toMatchObject({ expanded: false });
+
+    // Zen hides tool calls outright, so the setting has nothing to open.
+    const zen = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestRun,
+      isWorking: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      expandToolCallsByDefault: true,
+      toolCallVisibility: "zen",
+    });
+    expect(zen.map((row) => row.kind).filter((kind) => kind !== "message")).toEqual([]);
   });
 
   it("keeps a settled turn fold open when the user already expanded a thinking trace or work group inside it", () => {

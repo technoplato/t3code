@@ -5542,7 +5542,7 @@
   "2cbbfd0051e862ab": "Expandera tänkande som standard",
   "5314e1d861ac9580": "Öppna agentens tänkande och resonemang automatiskt",
   "4003173458442eb6": "Expandera verktygsanrop som standard",
-  "d7a443b7fdc16ca7": "Öppna verktygsanropsgrupper och avslutade tursammanfattningar automatiskt",
+  "9c2f2fec53cbf659": "Öppna verktygsanropsgrupper, varje verktygsanrop och subagentgrupp samt avslutade tursammanfattningar automatiskt",
   "f37fb72a3f8a5164": "Höjd på aktivitetens rullningsruta",
   "8d545d54c0a9e950": "Dölj kommandon, redigeringar och sökningar som agenter kör. Dölj lyckade behåller misslyckanden. Zen visar bara slutliga svar. Godkännanden, frågor och fel visas alltid.",
   "611434a264b1ce8a": "Styr hur höga expanderade rullningsrutor för tänkande och verktygsanrop blir. Välj Full för att läsa direkt i flödet utan inre rullningsruta."

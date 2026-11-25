@@ -10153,7 +10153,7 @@
   "5848a9c1d77f45b2": "Tool-Aufrufe im Chat auf Standard zurücksetzen",
   "c76f6dc3993912b2": "Denk- und Begründungsspuren des Agenten automatisch ausklappen statt auf eine Zeile zu kürzen. Du kannst jede Spur weiterhin per Klick einklappen.",
   "aaa05960bb333dcf": "Standardmäßig ausgeklappten Denkprozess zurücksetzen",
-  "eb7576eff8c47734": "Werkzeugaufruf-Gruppen und abgeschlossene Zug-Zusammenfassungen automatisch ausklappen statt sie einzuklappen. Du kannst jede Gruppe weiterhin per Klick einklappen.",
+  "a74c9784d2eaf89b": "Werkzeugaufruf-Gruppen, jeden Werkzeugaufruf und jede Subagent-Gruppe darin sowie abgeschlossene Zug-Zusammenfassungen automatisch ausklappen statt sie einzuklappen. Du kannst jedes davon weiterhin per Klick einklappen.",
   "c08ca91481478035": "Standardmäßig ausgeklappte Werkzeugaufrufe zurücksetzen",
   "138032187d83a73e": "Steuere die maximale Höhe ausgeklappter Denk- und Werkzeug-Scrollbereiche. Ziehe den unteren Rand zum Ändern der Größe oder wähle Vollständig zum direkten Ausklappen.",
   "135367b7bf88471a": "Höhe des Aktivitäts-Scrollbereichs auf Standard zurücksetzen",

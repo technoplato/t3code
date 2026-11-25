@@ -16,6 +16,7 @@ import { LinkRequestCard } from "./LinkRequestCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { TimelineRowCtx, type TimelineRow } from "./timelineRowContext";
 import { subagentGroupTiming } from "./TimelineV2EventRow.logic";
+import { readDisclosureOverride, writeDisclosureOverride } from "./TimelineWorkEntryRow.logic";
 
 export function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -61,9 +62,10 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
   const gt = useGT();
   const m = useMessages();
   const groupId = `subagent-group:${row.id}`;
-  const [expanded, setExpanded] = useState(() =>
-    ctx.workGroupViewState.expandedEntries.has(groupId),
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(() =>
+    readDisclosureOverride(ctx.workGroupViewState, groupId),
   );
+  const expanded = expandedOverride ?? ctx.expandToolCallsByDefault;
   const members = (row.subagents ?? [row.projectedItem]).flatMap(({ item }) =>
     item.type === "subagent" ? [item] : [],
   );
@@ -92,9 +94,8 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
   );
   const toggleExpanded = (open: boolean) => {
     ctx.onToggleWorkEntry(row.id, expanded);
-    if (open) ctx.workGroupViewState.expandedEntries.add(groupId);
-    else ctx.workGroupViewState.expandedEntries.delete(groupId);
-    setExpanded(open);
+    writeDisclosureOverride(ctx.workGroupViewState, groupId, open);
+    setExpandedOverride(open);
   };
   return (
     <WorkLogBlock continues={row.continuesWorkLog}>

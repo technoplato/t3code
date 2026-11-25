@@ -106,8 +106,14 @@ export function ThreadSubagentGroup(props: {
   readonly environmentId: EnvironmentId;
   readonly anchorKey: string;
   readonly expandedRows: Readonly<Record<string, boolean>>;
+  readonly expandToolCallsByDefault?: boolean | undefined;
   readonly iconSubtleColor: ColorValue;
-  readonly onToggleRow: (rowId: string, anchorKey: string) => void;
+  readonly onToggleRow: (
+    rowId: string,
+    anchorKey: string,
+    groupId?: string,
+    currentlyExpanded?: boolean,
+  ) => void;
 }) {
   const gt = useGT();
   const messages = useMessages();
@@ -145,7 +151,7 @@ export function ThreadSubagentGroup(props: {
     agents.map((agent) => agent.status),
     messages,
   );
-  const expanded = props.expandedRows[props.anchorKey] ?? false;
+  const expanded = props.expandedRows[props.anchorKey] ?? props.expandToolCallsByDefault ?? false;
   const serverConfigs = useServerConfigs();
   // A task in a linked environment runs a provider instance of that environment.
   const configOf = (item: SubagentItem) =>
@@ -157,7 +163,8 @@ export function ThreadSubagentGroup(props: {
           accessibilityRole="button"
           accessibilityLabel={gt("{label}, {summary}", { label, summary })}
           accessibilityState={{ expanded }}
-          onPress={() => props.onToggleRow(props.anchorKey, props.anchorKey)}
+          // Without the current state, the first tap on a group the setting opened would open it again.
+          onPress={() => props.onToggleRow(props.anchorKey, props.anchorKey, undefined, expanded)}
           className="min-h-14 flex-row items-center gap-3 rounded-lg py-2 active:bg-subtle"
         >
           <View className="flex-row items-center">

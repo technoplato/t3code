@@ -5544,7 +5544,7 @@
   "2cbbfd0051e862ab": "Expand thinking by default",
   "5314e1d861ac9580": "Open agent thinking and reasoning traces automatically",
   "4003173458442eb6": "Expand tool calls by default",
-  "d7a443b7fdc16ca7": "Open tool call groups and completed turn summaries automatically",
+  "9c2f2fec53cbf659": "Open tool call groups, each tool call and subagent group, and completed turn summaries automatically",
   "f37fb72a3f8a5164": "Activity scroll box height",
   "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show.",
   "611434a264b1ce8a": "Control how tall expanded thinking and tool call scroll boxes grow. Choose Full to read thinking and tool activity inline without an inner scroll box."

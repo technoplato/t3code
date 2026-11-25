@@ -10152,7 +10152,7 @@
   "5848a9c1d77f45b2": "Redefinir as chamadas de ferramentas no chat para o padrão",
   "c76f6dc3993912b2": "Expande automaticamente os rastros de raciocínio do agente em vez de recolhê-los em uma prévia de uma linha. Você ainda pode clicar em qualquer um para recolher.",
   "aaa05960bb333dcf": "Redefinir expandir raciocínio por padrão",
-  "eb7576eff8c47734": "Expande automaticamente grupos de chamadas de ferramentas e resumos de turnos concluídos em vez de recolhê-los. Você ainda pode clicar em qualquer grupo para recolher.",
+  "a74c9784d2eaf89b": "Expande automaticamente grupos de chamadas de ferramentas, cada chamada de ferramenta e grupo de subagentes dentro deles, e resumos de turnos concluídos em vez de recolhê-los. Você ainda pode clicar em qualquer um deles para recolher.",
   "c08ca91481478035": "Redefinir expandir chamadas de ferramentas por padrão",
   "138032187d83a73e": "Controla a altura máxima das caixas de rolagem de raciocínio e chamadas de ferramentas. Arraste a borda inferior para redimensionar ou escolha Completo para expandir diretamente.",
   "135367b7bf88471a": "Redefinir altura da caixa de rolagem de atividade para o padrão",

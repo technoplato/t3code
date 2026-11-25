@@ -37,10 +37,29 @@ const layerTestStores = Layer.merge(EventStore.layer, ProjectionStore.layer).pip
 const layerTestEventSink = EventSink.layer.pipe(
   Layer.provide(Layer.mergeAll(layerTestStores, layerTestDatabase)),
 );
+// Counts the hub's event-log reads; the tests write through the uncounted sink.
+const hubEventLogReads = { count: 0 };
+const layerCountedEventSink = Layer.effect(
+  EventSink.EventSinkV2,
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    return EventSink.EventSinkV2.of({
+      ...sink,
+      latestSequence: (input) => {
+        hubEventLogReads.count += 1;
+        return sink.latestSequence(input);
+      },
+      stream: (input) => {
+        hubEventLogReads.count += 1;
+        return sink.stream(input);
+      },
+    });
+  }),
+).pipe(Layer.provide(layerTestEventSink));
 const layerTest = Layer.mergeAll(
   layerTestEventSink,
   IdAllocator.layer,
-  CommandOutputHub.layer.pipe(Layer.provide(Layer.merge(layerTestEventSink, layerTestStores))),
+  CommandOutputHub.layer.pipe(Layer.provide(Layer.merge(layerCountedEventSink, layerTestStores))),
 );
 
 const modelSelection = {
@@ -277,6 +296,29 @@ layer("CommandOutputHub", (it) => {
       assert.isAtMost(final.text.length, TERMINAL_OUTPUT_TAIL_CHARS);
       assert.isTrue(final.text.endsWith("line 399999"));
       assert.equal(yield* Queue.take(frames), "ended");
+    }),
+  );
+
+  it.effect("a finished command answers from its stored row without reading the event log", () =>
+    Effect.gen(function* () {
+      const hub = yield* CommandOutputHub.CommandOutputHub;
+      const threadId = yield* seedThread;
+      yield* writeCommandItem(threadId, { status: "running" });
+      yield* hub.append({ threadId, itemId: ITEM_ID, chunk: "stopped early\n" });
+      yield* hub.finish({ threadId, itemId: ITEM_ID });
+      // Stopped commands can settle without output; the retained tail is all there is to show.
+      yield* writeCommandItem(threadId, { status: "interrupted" });
+      const readsBefore = hubEventLogReads.count;
+      const frames = yield* hub.subscribe({ threadId, itemId: ITEM_ID }).pipe(Stream.runCollect);
+      assert.deepEqual(Array.from(frames), [
+        { kind: "replace", text: "stopped early\n", truncated: false, running: false },
+      ]);
+      assert.equal(hubEventLogReads.count, readsBefore);
+
+      const running = yield* seedThread;
+      yield* writeCommandItem(running, { status: "running" });
+      yield* takeFrame(yield* subscribeFrames(running));
+      assert.isAbove(hubEventLogReads.count, readsBefore);
     }),
   );
 

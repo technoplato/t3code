@@ -77,6 +77,9 @@ import {
   workEntryIconName,
   thoughtPreviewMarkdown,
   THOUGHT_PREVIEW_SOURCE_MAX_LENGTH,
+  readDisclosureOverride,
+  toolRowExpandsByDefault,
+  writeDisclosureOverride,
 } from "./TimelineWorkEntryRow.logic";
 
 export function useThreadReadTarget(entry: TimelineWorkEntry, environmentId: EnvironmentId) {
@@ -316,13 +319,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     hasReasoningDetail &&
     (ctx.expandedWorkGroupIds.has(workGroupId(workEntry.id)) ||
       groupView?.leadingReasoningEntryIds.has(workEntry.id) === true);
-  const defaultExpanded = hasReasoningDetail && (ctx.expandThinkingByDefault || keptOpenFromGroup);
-  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(() => {
-    if (viewState.expandedEntries.has(workEntry.id)) return true;
-    if (viewState.collapsedEntries.has(workEntry.id)) return false;
-    return null;
-  });
-  const expanded = expandedOverride ?? defaultExpanded;
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(() =>
+    readDisclosureOverride(viewState, workEntry.id),
+  );
   const noticeMessage =
     workEntry.structuredPayload?.type === "system_notice"
       ? workEntry.structuredPayload.message
@@ -340,22 +339,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const onInitialOutputReady = () => {
     if (groupView) groupView.onContentReady?.(workEntry.id);
     else props.onContentReady?.();
-  };
-  const toggleExpanded = () => {
-    const next = !expanded;
-    if (next) {
-      viewState.expandedEntries.add(workEntry.id);
-      viewState.collapsedEntries.delete(workEntry.id);
-    } else {
-      viewState.expandedEntries.delete(workEntry.id);
-      viewState.collapsedEntries.add(workEntry.id);
-    }
-    if (groupView) {
-      groupView.onToggleEntry(!next, workEntry.id);
-    } else {
-      props.onToggleEntry?.(!next);
-    }
-    setExpandedOverride(next);
   };
   const failureItem = workEntry.projectedItem?.item;
   const pendingApproval =
@@ -446,8 +429,11 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const questionHeading = workEntry.questionAnswer
     ? getQuestionTextPreview(workEntry.questionAnswer)
     : "";
+  // A thought's label depends on whether it is open; tool rows wait on what they can expand.
+  const reasoningDefaultExpanded =
+    hasReasoningDetail && (ctx.expandThinkingByDefault || keptOpenFromGroup);
   const previewText =
-    isReasoning && expanded
+    isReasoning && (expandedOverride ?? reasoningDefaultExpanded)
       ? workEntry.toolLifecycleStatus === "inProgress"
         ? gt("Thinking")
         : gt("Thought")
@@ -504,18 +490,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       workEntry.changedFiles?.length ||
       viewedImage,
     );
-  const expandedBody =
-    expanded && !isReasoning
-      ? plainOutput !== undefined
-        ? plainOutput
-        : buildToolCallExpandedBody(
-            workEntry,
-            workspaceRoot,
-            previewText,
-            viewedImage ? viewedImagePath : null,
-            m,
-          )
-      : null;
   const plainOutputFetches =
     plainOutput !== undefined &&
     workEntry.projectedItem !== undefined &&
@@ -534,6 +508,37 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
               workEntry.questionAnswer ||
               turnItemHasDetail(workEntry.projectedItem.item),
             ));
+  const defaultExpanded = isReasoning
+    ? reasoningDefaultExpanded
+    : toolRowExpandsByDefault({
+        expandToolCallsByDefault: ctx.expandToolCallsByDefault,
+        canExpand: canExpandProjectedItem,
+        isSystemNotice: noticeMessage !== null,
+        isNotification: workEntry.projectedItem?.item.type === "notification",
+      });
+  const expanded = expandedOverride ?? defaultExpanded;
+  const toggleExpanded = () => {
+    const next = !expanded;
+    writeDisclosureOverride(viewState, workEntry.id, next);
+    if (groupView) {
+      groupView.onToggleEntry(!next, workEntry.id);
+    } else {
+      props.onToggleEntry?.(!next);
+    }
+    setExpandedOverride(next);
+  };
+  const expandedBody =
+    expanded && !isReasoning
+      ? plainOutput !== undefined
+        ? plainOutput
+        : buildToolCallExpandedBody(
+            workEntry,
+            workspaceRoot,
+            previewText,
+            viewedImage ? viewedImagePath : null,
+            m,
+          )
+      : null;
   const iconWrapperClass = cn(
     "flex size-4 items-center justify-center",
     showWarningIndicator

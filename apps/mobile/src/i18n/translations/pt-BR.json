@@ -5536,7 +5536,7 @@
   "2cbbfd0051e862ab": "Expandir raciocínio por padrão",
   "5314e1d861ac9580": "Abrir rastros de raciocínio do agente automaticamente",
   "4003173458442eb6": "Expandir chamadas de ferramentas por padrão",
-  "d7a443b7fdc16ca7": "Abrir grupos de chamadas de ferramentas e resumos de turnos automaticamente",
+  "9c2f2fec53cbf659": "Abrir grupos de chamadas de ferramentas, cada chamada e grupo de subagentes, e resumos de turnos automaticamente",
   "f37fb72a3f8a5164": "Altura da caixa de rolagem de atividade",
   "8d545d54c0a9e950": "Oculta os comandos, edições e pesquisas que os agentes executam. \"Ocultar bem-sucedidas\" mantém as falhas. Zen mostra só as respostas finais. Aprovações, perguntas e erros sempre aparecem.",
   "611434a264b1ce8a": "Controla a altura das caixas de rolagem de raciocínio e ferramentas. Escolha Completo para ler tudo diretamente sem uma caixa de rolagem interna."

@@ -10150,7 +10150,7 @@
   "5848a9c1d77f45b2": "Restablecer las llamadas a herramientas en el chat al valor predeterminado",
   "c76f6dc3993912b2": "Expande automáticamente los trazos de pensamiento y razonamiento del agente en lugar de ocultarlos tras una vista previa de una línea. Aún puedes hacer clic en cualquiera para contraerlo.",
   "aaa05960bb333dcf": "Restablecer expandir el pensamiento de forma predeterminada",
-  "eb7576eff8c47734": "Expande automáticamente los grupos de llamadas a herramientas y los resúmenes de turnos completados en lugar de contraerlos. Aún puedes hacer clic en cualquier grupo para contraerlo.",
+  "a74c9784d2eaf89b": "Expande automáticamente los grupos de llamadas a herramientas, cada llamada a herramienta y cada grupo de subagentes que contienen, y los resúmenes de turnos completados en lugar de contraerlos. Aún puedes hacer clic en cualquiera de ellos para contraerlo.",
   "c08ca91481478035": "Restablecer expandir llamadas a herramientas de forma predeterminada",
   "138032187d83a73e": "Controla la altura máxima de los cuadros de desplazamiento de pensamiento y llamadas a herramientas. Arrastra el borde inferior para cambiar su tamaño o elige Completo para expandir en línea.",
   "135367b7bf88471a": "Restablecer la altura del cuadro de desplazamiento de actividad",

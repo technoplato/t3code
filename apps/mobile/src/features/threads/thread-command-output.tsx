@@ -24,6 +24,7 @@ export function ThreadCommandOutput(props: {
   readonly threadId: ThreadId;
   readonly itemId: TurnItemId;
   readonly themeAppearance: "light" | "dark";
+  readonly maxHeight: number;
 }) {
   const gt = useGT();
   const { data, error } = useEnvironmentQuery(
@@ -60,7 +61,7 @@ export function ThreadCommandOutput(props: {
         nestedScrollEnabled
         directionalLockEnabled
         showsVerticalScrollIndicator
-        className="max-h-60"
+        style={{ maxHeight: props.maxHeight }}
         contentContainerStyle={{ paddingRight: 8 }}
         scrollEventThrottle={100}
         onScroll={(event) => {

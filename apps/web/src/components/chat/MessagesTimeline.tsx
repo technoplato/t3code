@@ -1259,6 +1259,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     workGroupViewState,
     expandedWorkGroupIds: paintedExpandedWorkGroupIds,
     expandThinkingByDefault,
+    expandToolCallsByDefault,
     workLogScrollHeight,
   };
   const compactionAwaitingRow =

@@ -10162,7 +10162,7 @@
   "5848a9c1d77f45b2": "Reset tool calls in chat to default",
   "c76f6dc3993912b2": "Automatically expand agent thinking and reasoning traces instead of collapsing them behind a one-line preview. You can still click any trace to collapse it.",
   "aaa05960bb333dcf": "Reset expand thinking by default to default",
-  "eb7576eff8c47734": "Automatically expand tool call groups and completed turn summaries instead of collapsing them. You can still click any group to collapse it.",
+  "a74c9784d2eaf89b": "Automatically expand tool call groups, each tool call and subagent group inside them, and completed turn summaries instead of collapsing them. You can still click any of them to collapse it.",
   "c08ca91481478035": "Reset expand tool calls by default to default",
   "138032187d83a73e": "Control the max height of expanded thinking and tool call scroll boxes. Drag the bottom edge of any scroll box to resize it, or choose Full to expand inline.",
   "135367b7bf88471a": "Reset activity scroll box height to default",

@@ -36,6 +36,9 @@ import "~/index.css";
 import { environmentThreadDetails } from "../../state/threads";
 import { act, fakeTimers, render, stubGlobal } from "../../../test/render";
 import { ChangedFilesCard } from "./ChangedFilesTree";
+import { CommandOutputPanel } from "./CommandOutputPanel";
+import { __setClientSettingsForTests } from "../../hooks/useSettings";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { MessagesTimeline } from "./MessagesTimeline";
 import { createWorkspaceFocusController, workspaceAreaProps } from "../../lib/workspaceFocus";
 import { resolveTimelineIsAtEnd } from "./MessagesTimeline.logic";
@@ -478,6 +481,77 @@ describe("MessagesTimeline work rows", () => {
     expect(output).toBeDefined();
     expect(output!.closest('[role="button"]')).toBeNull();
     expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toContain(output);
+  });
+
+  it("opens tool calls and subagent groups without a click while expand tool calls is on", async () => {
+    setup();
+    __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, expandToolCallsByDefault: true });
+    onTestFinished(() => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS));
+    const subagent = (id: string) =>
+      ({
+        id,
+        kind: "event",
+        createdAt: CREATED_AT,
+        projectedItem: v2Item("subagent", {
+          id,
+          subagentId: NodeId.make(id),
+          title: `Agent ${id}`,
+          prompt: `Agent ${id}`,
+          driver: ProviderDriverKind.make("claudeAgent"),
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          childThreadId: ThreadId.make(`child-${id}`),
+          result: null,
+        }),
+      }) as Entry;
+    await using screen = await renderTimeline([
+      work("tool-command", {
+        label: "Ran command",
+        tone: "tool",
+        itemType: "command_execution",
+        command: "npm test",
+        detail: "AUTO_OPENED_OUTPUT",
+      }),
+      subagent("one"),
+      subagent("two"),
+    ]);
+    const toggle = screen.button(/npm test/);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.text()).toContain("AUTO_OPENED_OUTPUT");
+    const group = screen.button("2 subagents");
+    expect(group.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.text()).toContain("Agent one");
+
+    // The person's collapse wins over the setting.
+    await click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.text()).not.toContain("AUTO_OPENED_OUTPUT");
+    await click(group);
+    expect(group.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.text()).not.toContain("Agent one");
+  });
+
+  it("shows a command's output outside the timeline, as the background work dialog does", async () => {
+    setup();
+    environmentQuery.error = null;
+    environmentQuery.data = {
+      output: { text: "BACKGROUND_OUTPUT", truncated: false },
+      running: true,
+    };
+    const panel = (workLogScrollHeight?: "full") => (
+      <CommandOutputPanel
+        environmentId={ENVIRONMENT_ID}
+        threadId={ThreadId.make("thread-1")}
+        itemId={TurnItemId.make("command-1")}
+        workLogScrollHeight={workLogScrollHeight}
+      />
+    );
+    await using screen = await renderElement(panel());
+    const output = () => page.getByText("BACKGROUND_OUTPUT").element();
+    await expect.element(page.getByText("BACKGROUND_OUTPUT")).toBeVisible();
+    expect(output().className).toContain("max-h-80");
+    // Full still bounds one output, so a huge payload cannot swallow the page.
+    await screen.rerender(panel("full"));
+    expect(output().className).toContain("max-h-[80dvh]");
   });
 });
 

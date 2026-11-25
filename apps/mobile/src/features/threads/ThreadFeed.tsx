@@ -251,10 +251,14 @@ import {
 import { touchClientView } from "../../connection/client-view";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { type ThreadWorkGroupScrollPosition } from "./thread-feed-scroll-position";
-import { resolveOpenedGroupReasoningRowIds } from "./thread-work-log-thinking";
+import {
+  isWorkRowExpanded,
+  resolveOpenedGroupReasoningRowIds,
+  resolveWorkLogHeights,
+} from "./thread-work-log-thinking";
 import {
   collapsedWorkLogHeight,
-  isWorkRowExpanded,
+  resolveWorkGroupMaxHeight,
   ThreadDisclosureChevron,
   THREAD_DISCLOSURE_TRANSITION_MS,
   ThreadWorkGroupToggle,
@@ -2004,6 +2008,7 @@ function renderFeedEntry(
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly expandThinkingByDefault: boolean;
+    readonly expandToolCallsByDefault: boolean;
     readonly workLogScrollHeight: WorkLogScrollHeight;
     readonly workRowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
@@ -2774,6 +2779,7 @@ function renderFeedEntry(
       expandedRows={props.expandedWorkRows}
       groupExpandedByUser={groupExpandedByUser}
       expandThinkingByDefault={props.expandThinkingByDefault}
+      expandToolCallsByDefault={props.expandToolCallsByDefault}
       workLogScrollHeight={props.workLogScrollHeight}
       rowSizing={props.workRowSizing}
       scrollPositions={props.workGroupScrollPositions}
@@ -3238,7 +3244,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const { themeAppearance } = useAppearancePreferences();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerMaterialVisibleRef = useRef(false);
-  const { width: windowWidth, fontScale } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
   const { appearance } = useAppearancePreferences();
   const workRowSizing = deriveThreadWorkLogSizing({
     baseFontSize: appearance.baseFontSize,
@@ -3889,6 +3895,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedWorkGroups,
     expandedWorkRows,
     expandThinkingByDefault: props.expandThinkingByDefault ?? false,
+    expandToolCallsByDefault: props.expandToolCallsByDefault ?? false,
     workLogScrollHeight: props.workLogScrollHeight ?? "default",
     workRowSizing,
     iconSubtleColor,
@@ -4298,6 +4305,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     openPreview(markdownLinkScope, { file: source });
   };
 
+  const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
+  const expandToolCallsByDefault = props.expandToolCallsByDefault ?? false;
+  const workLogScrollHeight = props.workLogScrollHeight ?? "default";
   // Without this, every row above the viewport is assumed to be
   // estimatedItemSize tall, and scrolling up through unmeasured content
   // corrects each row's height as it mounts — the feed visibly jumps.
@@ -4345,7 +4355,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             isWorkRowExpanded(
               activity,
               expandedWorkRows,
-              props.expandThinkingByDefault ?? false,
+              expandThinkingByDefault,
+              expandToolCallsByDefault,
               openedGroupReasoningIds,
             ),
         )
@@ -4353,7 +4364,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           : collapsedWorkLogHeight(
               entry.activities,
               entry.continuesWorkLog,
-              props.workLogScrollHeight ?? "default",
+              resolveWorkGroupMaxHeight(
+                workLogScrollHeight,
+                windowHeight,
+                expandToolCallsByDefault,
+                entry.activities.length,
+              ),
             );
       default:
         return undefined;
@@ -4364,14 +4380,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // after the commit that hands it rows at the new geometry; clearing earlier
   // re-caches old sizes.
   const { textSizeKey } = workRowSizing;
-  const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
-  const workLogScrollHeight = props.workLogScrollHeight ?? "default";
+  // Group boxes scale with the window, so a rotation or split-view resize changes fixed sizes too.
+  const workGroupMaxHeight = resolveWorkLogHeights(
+    workLogScrollHeight,
+    windowHeight,
+  ).workGroupMaxHeight;
   const hasHtmlRenders = presentedFeed.some((entry) => entry.type === "html-render");
   const previousRowGeometry = useRef({
     textSizeKey,
     contentWidth,
     expandThinkingByDefault,
+    expandToolCallsByDefault,
     workLogScrollHeight,
+    workGroupMaxHeight,
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears LegendList size caches after the commit that brings new row geometry
   useLayoutEffect(() => {
@@ -4380,19 +4401,25 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       previous.textSizeKey === textSizeKey &&
       previous.contentWidth === contentWidth &&
       previous.expandThinkingByDefault === expandThinkingByDefault &&
-      previous.workLogScrollHeight === workLogScrollHeight
+      previous.expandToolCallsByDefault === expandToolCallsByDefault &&
+      previous.workLogScrollHeight === workLogScrollHeight &&
+      previous.workGroupMaxHeight === workGroupMaxHeight
     )
       return;
     previousRowGeometry.current = {
       textSizeKey,
       contentWidth,
       expandThinkingByDefault,
+      expandToolCallsByDefault,
       workLogScrollHeight,
+      workGroupMaxHeight,
     };
     if (
       previous.textSizeKey !== textSizeKey ||
       previous.expandThinkingByDefault !== expandThinkingByDefault ||
+      previous.expandToolCallsByDefault !== expandToolCallsByDefault ||
       previous.workLogScrollHeight !== workLogScrollHeight ||
+      previous.workGroupMaxHeight !== workGroupMaxHeight ||
       hasHtmlRenders
     ) {
       listRef.current?.clearCaches({ mode: "sizes" });
@@ -4401,7 +4428,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     textSizeKey,
     contentWidth,
     expandThinkingByDefault,
+    expandToolCallsByDefault,
     workLogScrollHeight,
+    workGroupMaxHeight,
     hasHtmlRenders,
     listRef,
   ]);
@@ -4458,6 +4487,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             expandedWorkGroups,
             expandedWorkRows,
             expandThinkingByDefault,
+            expandToolCallsByDefault,
             workLogScrollHeight,
             workRowSizing,
             workGroupScrollPositions,

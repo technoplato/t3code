@@ -40,6 +40,8 @@ const MAX_LIVE_COMMANDS = 64;
 const MAX_FINISHED_COMMANDS = 16;
 const MAX_FINAL_SOURCE_CHARS = TERMINAL_OUTPUT_TAIL_CHARS * 4;
 
+type CommandItem = Extract<OrchestrationV2TurnItem, { type: "command_execution" }>;
+
 interface Subscriber {
   pendingAppend: string;
   needsReplace: boolean;
@@ -151,10 +153,36 @@ export const make = Effect.gen(function* () {
       setBounded(finished, key, tail, MAX_FINISHED_COMMANDS);
     });
 
+  const finalFrame = (key: string, settled: CommandItem): OrchestrationV2CommandOutputFrame => {
+    const tail = tails.get(key) ?? finished.get(key);
+    if (settled.output === undefined && tail !== undefined) {
+      return { kind: "replace", text: tail.text, truncated: tail.truncated, running: false };
+    }
+    return {
+      kind: "replace",
+      ...persistedCommandOutput(commandItemOutput(settled)),
+      running: false,
+    };
+  };
+
+  const noSuchCommand = (target: CommandOutputTarget) =>
+    new OrchestrationV2CommandOutputError({
+      threadId: target.threadId,
+      message: "No such command.",
+    });
+
   const subscribe: CommandOutputHubShape["subscribe"] = (target) =>
     Stream.unwrap(
       Effect.gen(function* () {
         const key = commandKey(target);
+        // A settled command cannot change, so its row needs one read and no event subscription.
+        const initial = yield* projections.getTurnItem(target);
+        if (initial === null || initial.type !== "command_execution") {
+          return yield* noSuchCommand(target);
+        }
+        if (!isOrchestrationV2WorkActive(initial.status)) {
+          return Stream.succeed(finalFrame(key, initial));
+        }
         const wake = yield* Queue.sliding<void>(1);
         const subscriber: Subscriber = {
           pendingAppend: "",
@@ -178,7 +206,7 @@ export const make = Effect.gen(function* () {
         // Persisted items provide settlement and final output; snapshot-only providers (ACP, Pi) also stream here.
         let snapshotOutput: string | undefined;
         let lost: Cause.Cause<unknown> | undefined;
-        let settled: Extract<OrchestrationV2TurnItem, { type: "command_execution" }> | undefined;
+        let settled: CommandItem | undefined;
         const observe = (item: OrchestrationV2TurnItem | undefined) =>
           Effect.suspend(() => {
             if (item === undefined || item.type !== "command_execution") return Effect.void;
@@ -216,10 +244,7 @@ export const make = Effect.gen(function* () {
         const item = yield* projections.getTurnItem(target);
         // Non-command rows would hold output subscriptions open forever.
         if (item === null || item.type !== "command_execution") {
-          return yield* new OrchestrationV2CommandOutputError({
-            threadId: target.threadId,
-            message: "No such command.",
-          });
+          return yield* noSuchCommand(target);
         }
         yield* observe(item);
         yield* Queue.offer(wake, undefined);
@@ -244,22 +269,8 @@ export const make = Effect.gen(function* () {
           }
           lastFrameAt = yield* Clock.currentTimeMillis;
           throttle = COMMAND_OUTPUT_FRAME_INTERVAL_MS;
+          if (settled !== undefined) return finalFrame(key, settled);
           const tail = tails.get(key) ?? finished.get(key);
-          if (settled !== undefined) {
-            if (settled.output === undefined && tail !== undefined) {
-              return {
-                kind: "replace",
-                text: tail.text,
-                truncated: tail.truncated,
-                running: false,
-              };
-            }
-            return {
-              kind: "replace",
-              ...persistedCommandOutput(commandItemOutput(settled)),
-              running: false,
-            };
-          }
           if (subscriber.needsReplace || tail === undefined) {
             if (subscriber.overflowed) throttle = COMMAND_OUTPUT_REPLACE_INTERVAL_MS;
             subscriber.needsReplace = false;

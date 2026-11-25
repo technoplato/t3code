@@ -1,5 +1,6 @@
 import type { CommandOutputView } from "@t3tools/client-runtime/state/command-output";
 import type { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
+import type { WorkLogScrollHeight } from "@t3tools/contracts/settings";
 import { TERMINAL_PALETTES, terminalOutputSpans } from "@t3tools/shared/terminalOutput";
 import { T, Var } from "gt-react";
 import { useLayoutEffect, useRef } from "react";
@@ -8,7 +9,13 @@ import { useTheme } from "../../hooks/useTheme";
 import { useServerConfigs } from "../../state/entities";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useEnvironmentQuery } from "../../state/query";
-import { useInitialOutputReady, type TurnItemSource } from "./timelineRowContext";
+import { cn } from "../../lib/utils";
+import {
+  useInitialOutputReady,
+  useWorkLogScrollHeightPreset,
+  type TurnItemSource,
+} from "./timelineRowContext";
+import { resolveToolOutputMaxHeightClassName } from "./workLogScrollHeight";
 
 const FOLLOW_SLACK_PX = 8;
 
@@ -30,7 +37,12 @@ export function CommandOutputPanel(props: {
   readonly threadId: ThreadId;
   readonly itemId: TurnItemId;
   readonly source?: TurnItemSource["commandOutput"] | undefined;
+  /** Where no timeline surrounds the panel, such as the background work dialog. */
+  readonly workLogScrollHeight?: WorkLogScrollHeight | undefined;
 }) {
+  const maxHeightClass = resolveToolOutputMaxHeightClassName(
+    useWorkLogScrollHeightPreset(props.workLogScrollHeight),
+  );
   const input = { threadId: props.threadId, itemId: props.itemId };
   const { data, error } = useEnvironmentQuery<CommandOutputView, unknown>(
     props.source
@@ -82,7 +94,7 @@ export function CommandOutputPanel(props: {
         followRef.current =
           element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_SLACK_PX;
       }}
-      className="max-h-80 overflow-auto text-muted-foreground"
+      className={cn(maxHeightClass, "overflow-auto text-muted-foreground")}
     >
       {data?.output.truncated ? (
         <div className="italic">

@@ -1,8 +1,10 @@
 import { Button } from "../../components/ui/Button";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
 import {
+  isWorkRowExpanded,
   resolveOpenedGroupReasoningRowIds,
-  resolveReasoningMaxHeight,
+  resolveWorkLogHeights,
+  shouldVirtualizeFullHeightWorkGroup,
 } from "./thread-work-log-thinking";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import {
@@ -439,31 +441,9 @@ function isFreshRow(createdAt: string): boolean {
 const WORK_ROW_HEIGHT = THREAD_WORK_ROW_MIN_HEIGHT;
 const WORK_ROW_GAP = 1;
 const WORK_LOG_BOTTOM_MARGIN = 3.5;
-const WORK_GROUP_MAX_HEIGHT_DEFAULT = 256;
-const WORK_GROUP_MAX_HEIGHT_TALL = 480;
 const WORK_GROUP_EDGE_FADE_HEIGHT = 12;
 
 export const WORK_GROUP_TOGGLE_HEIGHT = THREAD_WORK_ROW_MIN_HEIGHT;
-
-export function isWorkRowExpanded(
-  row: ThreadFeedActivity,
-  expandedRows: Readonly<Record<string, boolean>>,
-  expandThinkingByDefault: boolean,
-  openedGroupReasoningRowIds?: ReadonlySet<string>,
-): boolean {
-  const explicit = expandedRows[row.id];
-  if (explicit !== undefined) return explicit;
-  return (
-    (expandThinkingByDefault || openedGroupReasoningRowIds?.has(row.id) === true) &&
-    row.workEntry.itemType === "reasoning" &&
-    (row.workEntry.detail?.trim() ?? "") !== ""
-  );
-}
-
-function resolveWorkGroupMaxHeight(scrollHeight: WorkLogScrollHeight): number | undefined {
-  if (scrollHeight === "full") return undefined;
-  return scrollHeight === "tall" ? WORK_GROUP_MAX_HEIGHT_TALL : WORK_GROUP_MAX_HEIGHT_DEFAULT;
-}
 
 function workLogRowsHeight(
   activities: ReadonlyArray<ThreadFeedActivity>,
@@ -472,10 +452,24 @@ function workLogRowsHeight(
   return activities.length * rowHeight + Math.max(0, activities.length - 1) * WORK_ROW_GAP;
 }
 
+/** The box an activity group scrolls in; undefined renders its rows inline. */
+export function resolveWorkGroupMaxHeight(
+  workLogScrollHeight: WorkLogScrollHeight,
+  windowHeight: number,
+  expandToolCallsByDefault: boolean,
+  rowCount: number,
+): number | undefined {
+  return resolveWorkLogHeights(
+    workLogScrollHeight,
+    windowHeight,
+    shouldVirtualizeFullHeightWorkGroup(workLogScrollHeight, expandToolCallsByDefault, rowCount),
+  ).workGroupMaxHeight;
+}
+
 export function collapsedWorkLogHeight(
   activities: ReadonlyArray<ThreadFeedActivity>,
-  continues = false,
-  workLogScrollHeight: WorkLogScrollHeight = "default",
+  continues: boolean | undefined,
+  maxHeight: number | undefined,
 ): number {
   const bottomMargin = continues ? 0 : WORK_LOG_BOTTOM_MARGIN;
   if (activities.length === 0) {
@@ -485,7 +479,6 @@ export function collapsedWorkLogHeight(
     return bottomMargin + WORK_ROW_HEIGHT;
   }
   const height = workLogRowsHeight(activities);
-  const maxHeight = resolveWorkGroupMaxHeight(workLogScrollHeight);
   return (
     bottomMargin +
     (activities[0]?.groupedToolDetail && maxHeight !== undefined
@@ -504,6 +497,7 @@ interface ThreadWorkLogProps {
   readonly expandedRows: Readonly<Record<string, boolean>>;
   readonly groupExpandedByUser?: boolean | undefined;
   readonly expandThinkingByDefault?: boolean | undefined;
+  readonly expandToolCallsByDefault?: boolean | undefined;
   readonly workLogScrollHeight?: WorkLogScrollHeight | undefined;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   readonly scrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
@@ -525,9 +519,20 @@ interface ThreadWorkLogProps {
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
   const expandThinkingByDefault = props.expandThinkingByDefault ?? false;
+  const expandToolCallsByDefault = props.expandToolCallsByDefault ?? false;
   const workLogScrollHeight = props.workLogScrollHeight ?? "default";
-  const workGroupMaxHeight = resolveWorkGroupMaxHeight(workLogScrollHeight);
   const { height: windowHeight } = useWindowDimensions();
+  const scrollsAsGroup = props.activities[0]?.groupedToolDetail === true;
+  const heights = resolveWorkLogHeights(
+    workLogScrollHeight,
+    windowHeight,
+    scrollsAsGroup &&
+      shouldVirtualizeFullHeightWorkGroup(
+        workLogScrollHeight,
+        expandToolCallsByDefault,
+        props.activities.length,
+      ),
+  );
   const openedGroupReasoningRowIds = resolveOpenedGroupReasoningRowIds(
     props.activities,
     props.groupExpandedByUser === true,
@@ -542,10 +547,12 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         row,
         props.expandedRows,
         expandThinkingByDefault,
+        expandToolCallsByDefault,
         openedGroupReasoningRowIds,
       )}
       environmentId={props.environmentId}
-      workLogScrollHeight={workLogScrollHeight}
+      reasoningMaxHeight={heights.reasoningMaxHeight}
+      toolDetailMaxHeight={heights.toolDetailMaxHeight}
       iconSubtleColor={props.iconSubtleColor}
       onCopyRow={props.onCopyRow}
       onToggleRow={props.onToggleRow}
@@ -585,7 +592,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         <ThreadReasoningGroup
           activities={props.activities}
           edgeFadeColor={props.edgeFadeColor}
-          maxHeight={resolveReasoningMaxHeight(workLogScrollHeight, windowHeight)}
+          maxHeight={heights.reasoningMaxHeight}
           renderReasoning={props.renderReasoning}
         />
       </WorkLogBlock>
@@ -594,14 +601,16 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
 
   return (
     <WorkLogBlock continues={props.continuesWorkLog}>
-      {props.activities[0]?.groupedToolDetail && workGroupMaxHeight !== undefined ? (
+      {scrollsAsGroup && heights.workGroupMaxHeight !== undefined ? (
         <ThreadWorkGroupList
           activities={props.activities}
           edgeFadeColor={props.edgeFadeColor}
           expandedRows={props.expandedRows}
           expandThinkingByDefault={expandThinkingByDefault}
+          expandToolCallsByDefault={expandToolCallsByDefault}
+          workLogScrollHeight={workLogScrollHeight}
           openedGroupReasoningRowIds={openedGroupReasoningRowIds}
-          maxHeight={workGroupMaxHeight}
+          maxHeight={heights.workGroupMaxHeight}
           groupId={props.anchorKey}
           rowSizing={props.rowSizing}
           scrollPositions={props.scrollPositions}
@@ -684,6 +693,8 @@ function ThreadWorkGroupList(props: {
   readonly edgeFadeColor: string;
   readonly expandedRows: Readonly<Record<string, boolean>>;
   readonly expandThinkingByDefault: boolean;
+  readonly expandToolCallsByDefault: boolean;
+  readonly workLogScrollHeight: WorkLogScrollHeight;
   readonly openedGroupReasoningRowIds: ReadonlySet<string> | undefined;
   readonly maxHeight: number;
   readonly groupId: string;
@@ -701,13 +712,15 @@ function ThreadWorkGroupList(props: {
     : undefined;
   const initialScrollIndex = resolveThreadWorkGroupInitialScroll(props.activities, initialPosition);
   const listRef = useRef<LegendListRef>(null);
-  const previousTextSize = useRef(props.rowSizing.textSizeKey);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the list's cached row sizes when the text size changes
+  // Each of these changes which rows are fixed-size or how tall an opened row measures.
+  const rowGeometryKey = `${props.rowSizing.textSizeKey}|${props.expandThinkingByDefault}|${props.expandToolCallsByDefault}|${props.workLogScrollHeight}|${props.maxHeight}`;
+  const previousRowGeometryKey = useRef(rowGeometryKey);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the list's cached row sizes after the commit that brings new row geometry
   useLayoutEffect(() => {
-    if (previousTextSize.current === props.rowSizing.textSizeKey) return;
-    previousTextSize.current = props.rowSizing.textSizeKey;
+    if (previousRowGeometryKey.current === rowGeometryKey) return;
+    previousRowGeometryKey.current = rowGeometryKey;
     listRef.current?.clearCaches({ mode: "sizes" });
-  }, [props.rowSizing.textSizeKey]);
+  }, [rowGeometryKey]);
   const loadedRef = useRef(false);
   const [contentHeight, setContentHeight] = useState(estimatedRowsHeight);
   const height = Math.min(contentHeight, props.maxHeight);
@@ -764,6 +777,7 @@ function ThreadWorkGroupList(props: {
       row,
       props.expandedRows,
       props.expandThinkingByDefault,
+      props.expandToolCallsByDefault,
       props.openedGroupReasoningRowIds,
     ) || props.rowSizing.fixedRowHeight === undefined
       ? undefined
@@ -959,20 +973,18 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
     | "expandedRows"
     | "rowSizing"
     | "scrollPositions"
+    | "workLogScrollHeight"
   > & {
     readonly row: ThreadFeedActivity;
     readonly copied: boolean;
     readonly expanded: boolean;
+    readonly reasoningMaxHeight: number | undefined;
+    readonly toolDetailMaxHeight: number;
   },
 ) {
-  const { row, expanded } = props;
+  const { row } = props;
   const gt = useGT();
   const messages = useMessages();
-  const { height: windowHeight } = useWindowDimensions();
-  const reasoningMaxHeight = resolveReasoningMaxHeight(
-    props.workLogScrollHeight ?? "default",
-    windowHeight,
-  );
   const openLinkedThread = useOpenLinkedThread();
   const canSignInToMcp = useAtomValue(
     threadEnvironment.mcpSignInStart.permissionAtom(props.environmentId),
@@ -988,6 +1000,32 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
         })
       : NOT_SIGNED_IN,
   );
+  const notifiedSubagentThreadId =
+    row.projectedItem.item.type === "notification"
+      ? notificationChildThreadId(row.projectedItem.item.source)
+      : undefined;
+  const notice = row.projectedItem.item;
+  const mcpSignInTarget: McpSignInTarget | null =
+    canSignInToMcp &&
+    notice.type === "system_notice" &&
+    notice.mcpSignIn !== undefined &&
+    notice.providerThreadId !== null
+      ? {
+          threadId: notice.threadId,
+          providerThreadId: notice.providerThreadId,
+          server: notice.mcpSignIn.server,
+        }
+      : null;
+  // Signed in, the notice is an ordinary row again.
+  const opensMcpSignIn = mcpSignInTarget !== null && !mcpSignedIn;
+  // A sign-in notice opens its sheet instead; a nested button would be out of VoiceOver's reach.
+  const canExpand = row.canExpand && notifiedSubagentThreadId === undefined && !opensMcpSignIn;
+  // A default-expansion setting never opens a row that has nothing to open.
+  const expanded = canExpand && props.expanded;
+  // Rows that mount already open, as when scrolled into view, appear without the reveal animation.
+  const [seenCollapsed, setSeenCollapsed] = useState(!expanded);
+  if (!expanded && !seenCollapsed) setSeenCollapsed(true);
+  const animateDetailReveal = seenCollapsed || isFreshRow(row.createdAt);
   const streamsOutput =
     useCommandOutputStreaming(props.environmentId) &&
     row.projectedItem.item.type === "command_execution";
@@ -1080,26 +1118,6 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
       </WorkLogPressable>
     );
   }
-  const notifiedSubagentThreadId =
-    row.projectedItem.item.type === "notification"
-      ? notificationChildThreadId(row.projectedItem.item.source)
-      : undefined;
-  const notice = row.projectedItem.item;
-  const mcpSignInTarget: McpSignInTarget | null =
-    canSignInToMcp &&
-    notice.type === "system_notice" &&
-    notice.mcpSignIn !== undefined &&
-    notice.providerThreadId !== null
-      ? {
-          threadId: notice.threadId,
-          providerThreadId: notice.providerThreadId,
-          server: notice.mcpSignIn.server,
-        }
-      : null;
-  // Signed in, the notice is an ordinary row again.
-  const opensMcpSignIn = mcpSignInTarget !== null && !mcpSignedIn;
-  // A sign-in notice opens its sheet instead; a nested button would be out of VoiceOver's reach.
-  const canExpand = row.canExpand && notifiedSubagentThreadId === undefined && !opensMcpSignIn;
   const reasoning = row.projectedItem.item.type === "reasoning" ? row.projectedItem.item : null;
   const fetchedItem = fetchedDetail.data?.item ?? null;
   const isRead = toolGroupAction(row.workEntry) === "read";
@@ -1333,7 +1351,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
         outputImages.length > 0 ||
         row.workEntry.questionAnswer) ? (
         <Animated.View
-          entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
+          {...(animateDetailReveal ? { entering: WORK_LOG_DETAIL_ENTER_TRANSITION } : {})}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
           layout={WORK_LOG_LAYOUT_TRANSITION}
           className={reasoning ? "py-1" : "pb-1 pt-0.5"}
@@ -1371,8 +1389,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             nestedScrollEnabled
             directionalLockEnabled
             showsVerticalScrollIndicator
-            className={reasoning ? undefined : "max-h-60"}
-            style={reasoning ? { maxHeight: reasoningMaxHeight } : undefined}
+            style={{
+              maxHeight: reasoning ? props.reasoningMaxHeight : props.toolDetailMaxHeight,
+            }}
             contentContainerStyle={{ paddingRight: 8 }}
           >
             {reasoning ? (
@@ -1471,6 +1490,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
                 threadId={row.projectedItem.sourceThreadId}
                 itemId={row.projectedItem.sourceItemId}
                 themeAppearance={props.themeAppearance}
+                maxHeight={props.toolDetailMaxHeight}
               />
               {exitLine}
             </>

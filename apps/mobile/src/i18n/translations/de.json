@@ -5542,7 +5542,7 @@
   "2cbbfd0051e862ab": "Denkprozess standardmäßig ausklappen",
   "5314e1d861ac9580": "Denk- und Begründungsspuren des Agenten automatisch öffnen",
   "4003173458442eb6": "Werkzeugaufrufe standardmäßig ausklappen",
-  "d7a443b7fdc16ca7": "Werkzeugaufruf-Gruppen und abgeschlossene Zug-Zusammenfassungen automatisch öffnen",
+  "9c2f2fec53cbf659": "Werkzeugaufruf-Gruppen, jeden Werkzeugaufruf, jede Subagent-Gruppe und abgeschlossene Zug-Zusammenfassungen automatisch öffnen",
   "f37fb72a3f8a5164": "Höhe des Aktivitäts-Scrollbereichs",
   "8d545d54c0a9e950": "Die Befehle, Bearbeitungen und Suchen ausblenden, die Agenten ausführen. „Erfolgreiche ausblenden“ behält Fehler. „Zen“ zeigt nur endgültige Antworten. Genehmigungen, Fragen und Fehler werden immer angezeigt.",
   "611434a264b1ce8a": "Steuere, wie hoch ausgeklappte Denk- und Werkzeug-Scrollbereiche werden. Wähle Vollständig, um alles direkt ohne inneren Scrollbereich zu lesen."

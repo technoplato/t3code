@@ -5536,7 +5536,7 @@
   "2cbbfd0051e862ab": "Déplier la réflexion par défaut",
   "5314e1d861ac9580": "Ouvrir automatiquement les traces de réflexion et de raisonnement de l'agent",
   "4003173458442eb6": "Déplier les appels d'outils par défaut",
-  "d7a443b7fdc16ca7": "Ouvrir automatiquement les groupes d'appels d'outils et les résumés de tours terminés",
+  "9c2f2fec53cbf659": "Ouvrir automatiquement les groupes d'appels d'outils, chaque appel d'outil et groupe de sous-agents, et les résumés de tours terminés",
   "f37fb72a3f8a5164": "Hauteur de la zone de défilement d'activité",
   "8d545d54c0a9e950": "Masque les commandes, modifications et recherches lancées par les agents. Masquer les réussis garde les échecs. Zen n’affiche que les réponses finales. Les approbations, questions et erreurs s’affichent toujours.",
   "611434a264b1ce8a": "Contrôle la hauteur maximale des zones de défilement de réflexion et d'outils. Choisissez Complet pour lire directement sans zone de défilement interne."

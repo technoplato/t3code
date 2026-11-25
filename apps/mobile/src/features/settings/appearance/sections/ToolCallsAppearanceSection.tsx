@@ -84,7 +84,9 @@ export function ToolCallsAppearanceSection() {
           />
           <SettingsSwitchRow
             label={gt("Expand tool calls by default")}
-            subtitle={gt("Open tool call groups and completed turn summaries automatically")}
+            subtitle={gt(
+              "Open tool call groups, each tool call and subagent group, and completed turn summaries automatically",
+            )}
             value={expandToolCallsByDefault}
             disabled={!loaded}
             onValueChange={(value) => {
