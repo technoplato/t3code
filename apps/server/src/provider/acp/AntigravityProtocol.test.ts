@@ -4,6 +4,7 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 import * as AcpWireSchema from "effect-acp/schema-v1";
 
 import {
+  extractAntigravityElicitationForm,
   extractAntigravityUserInputQuestion,
   antigravityApprovalOptions,
   antigravitySubagentOutput,
@@ -736,5 +737,239 @@ describe("Antigravity served reads", () => {
       toolCallId: "call_current",
       status: "completed",
     });
+  });
+});
+
+describe("Antigravity ask_question elicitation form", () => {
+  type ElicitationRequest = Parameters<typeof extractAntigravityElicitationForm>[0];
+
+  const request = (
+    properties: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ): ElicitationRequest =>
+    ({
+      mode: "form",
+      sessionId: "session-1",
+      message: "The agent has a question.",
+      requestedSchema: { type: "object", properties, ...extra },
+    }) as ElicitationRequest;
+
+  const choices = [
+    { const: "1", title: "Rebase onto main" },
+    { const: "2", title: "Merge main in" },
+    { const: "3", title: "Squash first" },
+    { const: "4", title: "Leave it" },
+  ];
+  const single = {
+    type: "string",
+    title: "How do you want to bring the branch up to date?",
+    oneOf: choices,
+  };
+  const multi = {
+    type: "array",
+    title: "Which checks should run?",
+    items: { anyOf: choices },
+  };
+  const other = (question: string) => ({
+    type: "string",
+    title: "Other",
+    description: `Optional free-form answer to: ${question}`,
+  });
+  const image = 'Attached image "shot.png": "/tmp/shot.png"';
+  const file = 'Attached file "log.txt": "/tmp/log.txt"';
+
+  const singleForm = () => {
+    const form = extractAntigravityElicitationForm(
+      request({ q1: single, q1_other: other(single.title) }),
+    );
+    if (form === undefined) throw new Error("Expected the single-select form to be recognized");
+    return form;
+  };
+  const multiForm = () => {
+    const form = extractAntigravityElicitationForm(
+      request({ q1: multi, q1_other: other(multi.title) }),
+    );
+    if (form === undefined) throw new Error("Expected the multi-select form to be recognized");
+    return form;
+  };
+
+  it("folds the free-text companion into a single-select question", () => {
+    expect(singleForm().questions).toEqual([
+      {
+        id: "q1",
+        header: "Question 1",
+        question: "How do you want to bring the branch up to date?",
+        options: [
+          { label: "Rebase onto main", value: "1", description: "Rebase onto main" },
+          { label: "Merge main in", value: "2", description: "Merge main in" },
+          { label: "Squash first", value: "3", description: "Squash first" },
+          { label: "Leave it", value: "4", description: "Leave it" },
+        ],
+      },
+    ]);
+    expect(singleForm().questions[0]?.allowCustomAnswer).toBeUndefined();
+  });
+
+  it("sends a picked option as the choice field alone", () => {
+    expect(singleForm().respond({ q1: "2" })).toEqual({ action: "accept", content: { q1: "2" } });
+  });
+
+  it("sends custom text as the companion alone", () => {
+    expect(singleForm().respond({ q1: "Cherry-pick the two fixes" })).toEqual({
+      action: "accept",
+      content: { q1_other: "Cherry-pick the two fixes" },
+    });
+  });
+
+  it("sends an option's attachments in the companion without repeating the option label", () => {
+    expect(singleForm().respond({ q1: `1\n\n${image}` })).toEqual({
+      action: "accept",
+      content: { q1: "1", q1_other: image },
+    });
+  });
+
+  it("sends an attachment-only answer as the companion alone", () => {
+    expect(singleForm().respond({ q1: file })).toEqual({
+      action: "accept",
+      content: { q1_other: file },
+    });
+  });
+
+  it("keeps multi-line custom text whole, with and without attachments", () => {
+    const text = "Rebase first.\n\nThen squash the fixups.";
+    expect(singleForm().respond({ q1: text })).toEqual({
+      action: "accept",
+      content: { q1_other: text },
+    });
+    expect(singleForm().respond({ q1: `${text}\n\n${image}` })).toEqual({
+      action: "accept",
+      content: { q1_other: `${text}\n\n${image}` },
+    });
+    // The first paragraph is not an option, so it is custom text even before an attachment.
+    expect(singleForm().respond({ q1: `Neither\n\n${image}` })).toEqual({
+      action: "accept",
+      content: { q1_other: `Neither\n\n${image}` },
+    });
+  });
+
+  it("treats custom text equal to an option value as that option", () => {
+    expect(singleForm().respond({ q1: "2" })).toEqual({ action: "accept", content: { q1: "2" } });
+  });
+
+  it("folds the companion into a multi-select question", () => {
+    expect(multiForm().questions).toEqual([
+      {
+        id: "q1",
+        header: "Question 1",
+        question: "Which checks should run?",
+        options: [
+          { label: "Rebase onto main", value: "1", description: "Rebase onto main" },
+          { label: "Merge main in", value: "2", description: "Merge main in" },
+          { label: "Squash first", value: "3", description: "Squash first" },
+          { label: "Leave it", value: "4", description: "Leave it" },
+        ],
+        multiSelect: true,
+      },
+    ]);
+  });
+
+  it("answers a multi-select question with options, custom text, attachments, or a mix", () => {
+    const form = multiForm();
+    expect(form.respond({ q1: ["1", "3"] })).toEqual({
+      action: "accept",
+      content: { q1: ["1", "3"] },
+    });
+    expect(form.respond({ q1: ["1", "3", "1"] })).toEqual({
+      action: "accept",
+      content: { q1: ["1", "3"] },
+    });
+    expect(form.respond({ q1: "Neither" })).toEqual({
+      action: "accept",
+      content: { q1_other: "Neither" },
+    });
+    expect(form.respond({ q1: ["1", "3", image] })).toEqual({
+      action: "accept",
+      content: { q1: ["1", "3"], q1_other: image },
+    });
+    expect(form.respond({ q1: image })).toEqual({
+      action: "accept",
+      content: { q1_other: image },
+    });
+  });
+
+  it("answers each question of a multi-question form", () => {
+    const second = { ...single, title: "Which remote?", description: "Remote" };
+    const form = extractAntigravityElicitationForm(
+      request({
+        q1: single,
+        q1_other: other(single.title),
+        q2: second,
+        q2_other: other(second.title),
+      }),
+    );
+    expect(form?.questions.map(({ id, header, question }) => ({ id, header, question }))).toEqual([
+      { id: "q1", header: "Question 1", question: single.title },
+      { id: "q2", header: "Remote", question: "Which remote?" },
+    ]);
+    expect(form?.respond({ q1: "3", q2: "A fork" })).toEqual({
+      action: "accept",
+      content: { q1: "3", q2_other: "A fork" },
+    });
+    expect(form?.respond({ q1: "3" })).toEqual({ action: "decline" });
+  });
+
+  it("declines instead of cancelling when an answer is missing or blank", () => {
+    for (const form of [singleForm(), multiForm()]) {
+      for (const answers of [{}, { q1: "" }, { q1: "  \n " }, { q1: [] }, { q1: null }]) {
+        expect(form.respond(answers)).toEqual({ action: "decline" });
+      }
+    }
+    expect(singleForm().respond({ q1: ["2"] })).toEqual({ action: "decline" });
+  });
+
+  it("declines custom text for a question that has no companion", () => {
+    const form = extractAntigravityElicitationForm(request({ q1: single }));
+    expect(form?.questions[0]?.allowCustomAnswer).toBe(false);
+    expect(form?.respond({ q1: "4" })).toEqual({ action: "accept", content: { q1: "4" } });
+    expect(form?.respond({ q1: "Something else" })).toEqual({ action: "decline" });
+    expect(form?.respond({ q1: `4\n\n${image}` })).toEqual({ action: "decline" });
+
+    const multiOnly = extractAntigravityElicitationForm(request({ q1: multi }));
+    expect(multiOnly?.respond({ q1: ["2", image] })).toEqual({
+      action: "accept",
+      content: { q1: ["2"] },
+    });
+    expect(multiOnly?.respond({ q1: [image] })).toEqual({ action: "decline" });
+    expect(multiOnly?.respond({ q1: "Neither" })).toEqual({ action: "decline" });
+  });
+
+  it("recognizes the companion by its shape, not its wording", () => {
+    const form = extractAntigravityElicitationForm(
+      request({ q1: single, q1_other: { type: "string", title: "Custom" } }),
+    );
+    expect(form?.questions).toHaveLength(1);
+    expect(form?.respond({ q1: "My own" })).toEqual({
+      action: "accept",
+      content: { q1_other: "My own" },
+    });
+  });
+
+  it("leaves every other form to the generic mapping", () => {
+    const companion = other(single.title);
+    for (const unrecognized of [
+      request({ q1: single, q1_other: companion }, { required: ["q1"] }),
+      request({ q1: single, q1_other: companion }, { required: ["q1_other"] }),
+      request({ q1: single, q1_other: companion, notes: { type: "string", title: "Notes" } }),
+      request({ q1_other: companion }),
+      request({ q0: single }),
+      request({ q1: single, q1_other: { ...companion, enum: ["a", "b"] } }),
+      request({ q1: { ...single, oneOf: [] }, q1_other: companion }),
+      request({ q1: { ...single, enum: ["1", "2"] }, q1_other: companion }),
+      request({ q1: { type: "string", title: "Notes" } }),
+      request({}),
+      { ...request({ q1: single, q1_other: companion }), mode: "url" } as ElicitationRequest,
+    ]) {
+      expect(extractAntigravityElicitationForm(unrecognized)).toBeUndefined();
+    }
   });
 });

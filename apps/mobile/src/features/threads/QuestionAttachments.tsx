@@ -196,8 +196,9 @@ export function QuestionAttachments(props: {
         <TextInput
           ref={inputRef}
           defaultValue={initialText}
-          multiline={props.question.initialAnswer !== undefined}
-          submitBehavior={props.question.initialAnswer !== undefined ? "newline" : undefined}
+          multiline
+          submitBehavior="newline"
+          textAlignVertical="top"
           editable={!props.disabled}
           onChangeText={(text) => {
             nativeText.current = text;
@@ -212,7 +213,7 @@ export function QuestionAttachments(props: {
             onInputFocusChange?.(false);
           }}
           placeholder={gt("Or type a custom answer")}
-          className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
+          className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground max-h-36"
         />
       </TextInputWrapper>
     </View>

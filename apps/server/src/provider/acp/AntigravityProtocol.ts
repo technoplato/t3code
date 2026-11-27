@@ -1,7 +1,9 @@
-import type {
-  ProviderApprovalOption,
-  ProviderUserInputAnswers,
-  UserInputQuestion,
+import {
+  type OrchestrationV2UserInputQuestion,
+  type ProviderApprovalOption,
+  type ProviderUserInputAnswers,
+  TrimmedNonEmptyString,
+  type UserInputQuestion,
 } from "@t3tools/contracts";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import * as Option from "effect/Option";
@@ -10,6 +12,7 @@ import * as Schema from "effect/Schema";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import * as AcpWireSchema from "effect-acp/schema-v1";
 
+import type { AcpAdapterV2Flavor } from "@t3tools/provider-acp/server/adapter";
 import type { AcpToolCallState } from "@t3tools/provider-acp/server/runtimeModel";
 
 import {
@@ -183,6 +186,176 @@ export function makeAntigravityUserInputResponse(
   const option = matchingLabels.length === 1 ? matchingLabels[0] : undefined;
   return option ? { outcome: { outcome: "selected", optionId: option.optionId } } : undefined;
 }
+
+const isElicitationFormSchema = Schema.is(
+  Schema.Struct({
+    properties: Schema.Record(Schema.String, Schema.Unknown),
+    required: Schema.optional(Schema.Array(Schema.String)),
+  }),
+);
+const ElicitationChoices = Schema.NonEmptyArray(
+  Schema.Struct({
+    const: TrimmedNonEmptyString,
+    title: TrimmedNonEmptyString,
+    description: Schema.optional(Schema.String),
+  }),
+);
+const isSingleSelectField = Schema.is(
+  Schema.Struct({
+    type: Schema.Literal("string"),
+    title: TrimmedNonEmptyString,
+    description: Schema.optional(Schema.String),
+    oneOf: ElicitationChoices,
+  }),
+);
+const isMultiSelectField = Schema.is(
+  Schema.Struct({
+    type: Schema.Literal("array"),
+    title: TrimmedNonEmptyString,
+    description: Schema.optional(Schema.String),
+    items: Schema.Struct({ anyOf: ElicitationChoices }),
+  }),
+);
+// The companion is recognized by shape, so a change to its title or description still folds.
+const isFreeTextField = (field: unknown) =>
+  Predicate.isObject(field) &&
+  field.type === "string" &&
+  !("enum" in field || "oneOf" in field || "anyOf" in field || "items" in field);
+
+const ELICITATION_QUESTION_ID = /^q[1-9]\d*$/;
+const ELICITATION_COMPANION_SUFFIX = "_other";
+
+// Intake appends file references to a chosen option after a blank line.
+const splitAttachments = (value: string) => {
+  const marker = value.indexOf("\n\n");
+  if (marker < 0) return undefined;
+  const suffix = value.slice(marker);
+  if (!/^\n\nAttached (?:image|file) "(?:\\.|[^"\\\r\n])*": "/.test(suffix)) return undefined;
+  return { prefix: value.slice(0, marker), suffix };
+};
+
+/** One question's reply fields, or undefined when the answer cannot be sent as given. */
+function elicitationAnswerContent(
+  question: OrchestrationV2UserInputQuestion,
+  companionId: string | undefined,
+  answer: unknown,
+): Record<string, EffectAcpSchema.ElicitationContentValue> | undefined {
+  const isOption = (value: string) => question.options.some((option) => option.value === value);
+  const custom = (text: string) =>
+    companionId === undefined ? undefined : { [companionId]: text };
+  if (question.multiSelect && Array.isArray(answer)) {
+    const items = answer.filter(Predicate.isString);
+    const selected = [...new Set(items.filter(isOption))];
+    // Intake adds file references as one more array item after the selected options.
+    const extras = items
+      .filter((item) => !isOption(item))
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (selected.length === 0 && (extras.length === 0 || companionId === undefined)) {
+      return undefined;
+    }
+    return {
+      ...(selected.length > 0 ? { [question.id]: selected } : {}),
+      ...(extras.length > 0 && companionId !== undefined
+        ? { [companionId]: extras.join("\n\n") }
+        : {}),
+    };
+  }
+  if (typeof answer !== "string" || answer.trim().length === 0) return undefined;
+  if (question.multiSelect) return custom(answer);
+  if (isOption(answer)) return { [question.id]: answer };
+  const split = splitAttachments(answer);
+  if (split !== undefined && isOption(split.prefix)) {
+    // The agent joins the option's label and the companion text itself.
+    return companionId === undefined
+      ? undefined
+      : { [question.id]: split.prefix, [companionId]: split.suffix.trimStart() };
+  }
+  return custom(answer);
+}
+
+/**
+ * agy's `ask_question` sends each question as a `qN` choice field plus a free-text `qN_other`
+ * companion, with the question text in the field title. Fold each pair into one question; any
+ * other form is left to the generic mapping.
+ */
+export const extractAntigravityElicitationForm: NonNullable<
+  AcpAdapterV2Flavor["extractElicitationForm"]
+> = (request) => {
+  if (request.mode !== "form" || !isElicitationFormSchema(request.requestedSchema)) {
+    return undefined;
+  }
+  const { properties } = request.requestedSchema;
+  const required = new Set(request.requestedSchema.required);
+  const questions: Array<OrchestrationV2UserInputQuestion> = [];
+  const companionIds = new Map<string, string>();
+  for (const [id, field] of Object.entries(properties)) {
+    if (!ELICITATION_QUESTION_ID.test(id)) {
+      const owner = id.endsWith(ELICITATION_COMPANION_SUFFIX)
+        ? id.slice(0, -ELICITATION_COMPANION_SUFFIX.length)
+        : undefined;
+      if (
+        owner === undefined ||
+        !ELICITATION_QUESTION_ID.test(owner) ||
+        !Object.hasOwn(properties, owner) ||
+        !isFreeTextField(field) ||
+        // A reply sends only one half of a pair for a custom answer, so neither may be required.
+        required.has(owner) ||
+        required.has(id)
+      ) {
+        return undefined;
+      }
+      companionIds.set(owner, id);
+      continue;
+    }
+    let choices: typeof ElicitationChoices.Type;
+    let multiSelect = false;
+    if (isSingleSelectField(field)) {
+      if ("enum" in field || "anyOf" in field || "items" in field) return undefined;
+      choices = field.oneOf;
+    } else if (isMultiSelectField(field)) {
+      if ("enum" in field || "oneOf" in field || "enum" in field.items || "oneOf" in field.items) {
+        return undefined;
+      }
+      choices = field.items.anyOf;
+      multiSelect = true;
+    } else {
+      return undefined;
+    }
+    questions.push({
+      id,
+      header: field.description?.trim() || `Question ${questions.length + 1}`,
+      question: field.title.trim(),
+      options: choices.map((option) => ({
+        label: option.title.trim(),
+        value: option.const.trim(),
+        description: option.description?.trim() || option.title.trim(),
+      })),
+      ...(multiSelect ? { multiSelect: true } : {}),
+      ...(Object.hasOwn(properties, `${id}${ELICITATION_COMPANION_SUFFIX}`)
+        ? {}
+        : { allowCustomAnswer: false }),
+    });
+  }
+  if (questions.length === 0) return undefined;
+  return {
+    questions,
+    respond: (answers) => {
+      const content: Record<string, EffectAcpSchema.ElicitationContentValue> = {};
+      for (const question of questions) {
+        const fields = elicitationAnswerContent(
+          question,
+          companionIds.get(question.id),
+          Object.hasOwn(answers, question.id) ? answers[question.id] : undefined,
+        );
+        // Declining lets the agent ask in chat; cancelling would end the question unanswered.
+        if (fields === undefined) return { action: "decline" };
+        Object.assign(content, fields);
+      }
+      return { action: "accept", content };
+    },
+  };
+};
 
 function boundText(text: string, limit = TOOL_TEXT_LIMIT): string {
   return text.length <= limit
